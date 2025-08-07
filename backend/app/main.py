@@ -3,7 +3,7 @@ from app.database import Base, engine
 from app.routes import users
 
 # Import models to create tables
-from app.models import User
+from backend.app.models.models import User
 
 # Initialize the database
 Base.metadata.create_all(bind=engine)

@@ -1,5 +1,6 @@
+from backend.app.schemas import schemas
 from sqlalchemy.orm import Session
-from app import models, schemas
+from backend.app.models import models
 
 def create_user(db: Session, user: schemas.UserCreate):
     hashed_password = user.password + "notreallyhashed"  # Will implement hashing later
