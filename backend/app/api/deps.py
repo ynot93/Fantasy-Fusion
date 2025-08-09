@@ -1,0 +1,10 @@
+from typing import Generator
+from app.db.database import SessionLocal
+
+# Dependency to get a database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

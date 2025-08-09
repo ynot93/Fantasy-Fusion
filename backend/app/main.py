@@ -1,15 +1,9 @@
 from fastapi import FastAPI
-from app.database import Base, engine
-from app.routes import users
+from app.api.routes import auth
+from app.db.database import Base, engine
 
-# Import models to create tables
-from backend.app.models.models import User
-
-# Initialize the database
 Base.metadata.create_all(bind=engine)
 
-# Initialize the FastAPI app
-app = FastAPI()
+app = FastAPI(title="Fantasy Fusion")
 
-# Include routes
-app.include_router(users.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
