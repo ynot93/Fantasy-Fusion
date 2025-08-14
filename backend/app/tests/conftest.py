@@ -29,7 +29,7 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="function", autouse=True)
 async def prepare_database():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -43,3 +43,33 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+@pytest_asyncio.fixture
+async def auth_headers(client):
+    # 1. Register user
+    reg_payload = {
+        "username": "nouser",
+        "email": "nouser@example.com",
+        "password": "StrongPass123!"
+    }
+    await client.post("/auth/register", json=reg_payload)
+
+    # 2. Login to get token
+    login_payload = {
+        "email": "nouser@example.com",
+        "password": "StrongPass123!"
+    }
+    resp = await client.post("/auth/login", json=login_payload)
+    assert resp.status_code == 200
+    token = resp.json()["access_token"]
+
+    # 3. Return headers
+    return {"Authorization": f"Bearer {token}"}
+
+@pytest_asyncio.fixture
+async def create_league(client, auth_headers):
+    payload = {"name": "Test League"}
+    response = await client.post("/leagues/", json=payload, headers=auth_headers)
+    assert response.status_code == 201, response.text
+    print(response.json())
+    return response.json()
