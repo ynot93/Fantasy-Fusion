@@ -1,5 +1,4 @@
 import pytest
-from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
@@ -66,3 +65,73 @@ async def test_successful_registration(client):
     body = resp.json()
     assert "id" in body
     assert body["email"] == "unique@example.com"
+
+
+@pytest.mark.asyncio
+async def test_successful_login(client):
+    # First register the user
+    await client.post("/auth/register", json={
+        "username": "loginuser",
+        "email": "login@example.com",
+        "password": "StrongPass123!"
+    })
+
+    # Attempt login
+    resp = await client.post("/auth/login", json={
+        "email": "login@example.com",
+        "password": "StrongPass123!"
+    })
+
+    print(resp.json())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "access_token" in body
+    assert body["token_type"] == "bearer"
+
+
+@pytest.mark.asyncio
+async def test_login_wrong_password(client):
+    # Register the user
+    await client.post("/auth/register", json={
+        "username": "wrongpassuser",
+        "email": "wrongpass@example.com",
+        "password": "CorrectPass123!"
+    })
+
+    # Attempt login with wrong password
+    resp = await client.post("/auth/login", json={
+        "email": "wrongpass@example.com",
+        "password": "WrongPass123!"
+    })
+
+    assert resp.status_code == 401
+    body = resp.json()
+    assert body["detail"] == "Invalid credentials"
+
+
+@pytest.mark.asyncio
+async def test_login_nonexistent_user(client):
+    # Attempt login without registering first
+    resp = await client.post("/auth/login", json={
+        "email": "nouser@example.com",
+        "password": "SomePass123!"
+    })
+
+    assert resp.status_code == 401
+    body = resp.json()
+    assert body["detail"] == "Invalid credentials"
+
+
+@pytest.mark.asyncio
+async def test_login_missing_fields(client):
+    # Missing email
+    resp = await client.post("/auth/login", json={
+        "password": "StrongPass123!"
+    })
+    assert resp.status_code == 422  # Unprocessable Entity (validation error)
+
+    # Missing password
+    resp = await client.post("/auth/login", json={
+        "email": "some@example.com"
+    })
+    assert resp.status_code == 422
