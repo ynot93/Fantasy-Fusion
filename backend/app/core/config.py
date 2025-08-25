@@ -9,6 +9,15 @@ class Settings(BaseSettings):
     FPL_API_BASE_URL: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     REFRESH_TOKEN_EXPIRE_DAYS: int
+    CONSUMER_KEY: str
+    CONSUMER_SECRET: str
+    INITIATOR_NAME: str
+    INITIATOR_PASSWORD: str
+    SECURITY_CREDENTIAL: str
+    MPESA_SHORTCODE: str
+    PASS_KEY: str
+    MPESA_LIVE_URL: str
+    MPESA_SANDBOX_URL: str
 
     class Config:
         env_file = ".env"
