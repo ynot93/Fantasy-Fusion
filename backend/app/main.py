@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.api.routes import auth, leagues
+from app.api.routes import auth, leagues, payments
 from contextlib import asynccontextmanager
 from app.db.database import Base, engine
 
@@ -7,6 +7,7 @@ app = FastAPI(title="Fantasy Fusion")
 
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(leagues.router, prefix="/leagues", tags=["leagues"])
+app.include_router(payments.router, prefix="/payments", tags=["payments"])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
