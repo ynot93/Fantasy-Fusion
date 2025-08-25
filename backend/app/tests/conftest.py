@@ -7,6 +7,8 @@ from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.db.database import Base
 from app.api.deps import get_db
+from app.db.payments.service import PaymentsService
+from app.db.payments.providers.fake import FakeProvider
 
 # Use a separate test DB (here SQLite in-memory for speed)
 DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -20,6 +22,13 @@ async def override_get_db():
         yield session
 
 app.dependency_overrides[get_db] = override_get_db
+
+
+# override payments service to use fakes
+def _svc():
+    return PaymentsService({"MPESA": FakeProvider("MPESA"), "PAYPAL": FakeProvider("PAYPAL"), "STRIPE": FakeProvider("STRIPE")})
+from app.api.routes.payments import get_payments_service
+app.dependency_overrides[get_payments_service] = _svc
 
 
 @pytest.fixture(scope="session")
