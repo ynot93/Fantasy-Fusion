@@ -1,6 +1,6 @@
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional
 from app.core.config import settings
 import base64, httpx
@@ -15,7 +15,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    to_encode["exp"] = datetime.utcnow() + expires_delta
+    to_encode["exp"] = datetime.now(UTC) + expires_delta
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM)
 
 def create_access_token(data: dict):
