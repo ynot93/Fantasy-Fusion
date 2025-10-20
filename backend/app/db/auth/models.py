@@ -13,3 +13,4 @@ class User(Base):
 
     leagues_created = relationship("League", back_populates="created_by")
     leagues_joined = relationship("League", secondary=league_members, back_populates="members")
+    wallet = relationship('Wallet', back_populates="user", uselist=False)
