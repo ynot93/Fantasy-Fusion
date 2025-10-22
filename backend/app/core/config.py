@@ -15,9 +15,13 @@ class Settings(BaseSettings):
     INITIATOR_PASSWORD: str
     SECURITY_CREDENTIAL: str
     MPESA_SHORTCODE: str
-    PASS_KEY: str
+    MPESA_PASSKEY: str
     MPESA_LIVE_URL: str
     MPESA_SANDBOX_URL: str
+    STRIPE_SECRET_KEY: str
+    STRIPE_PUBLISHABLE_KEY: str
+    STRIPE_WEBHOOK_SECRET: str
+    MY_DOMAIN: str
 
     class Config:
         env_file = ".env"
