@@ -1,0 +1,5 @@
+{
+  "name": "FPL Nexus Leagues",
+  "description": "A fantasy football application where users can join leagues, compete for weekly prizes based on Fantasy Premier League points, create private leagues, and manage their profile.",
+  "requestFramePermissions": []
+}
