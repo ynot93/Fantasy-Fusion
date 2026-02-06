@@ -2,6 +2,9 @@ from app.db.payments.interfaces import PaymentProvider
 from app.db.payments.models import TxType, TxStatus, Provider, LeaguePot
 from app.db.payments import crud as pay_crud
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.db.payments.models import Transaction
+from typing import Optional
 
 class PaymentsService:
     def __init__(self, provider_map: dict[str, PaymentProvider]):
@@ -31,23 +34,15 @@ class PaymentsService:
         return tx, meta
 
     async def confirm_deposit(self, db: AsyncSession, *, provider: str, provider_ref: str):
+        # Convenience for providers with capture API (Stripe)
         prov = self.providers[provider]
         result = await prov.capture_deposit(provider_ref)
         # On success, credit wallet
         # Load tx by provider+provider_ref
-        from sqlalchemy import select
-        from app.db.payments.models import Transaction
-        q = select(Transaction).where(Transaction.provider==provider, Transaction.provider_ref==provider_ref)
-        tx = (await db.execute(q)).scalars().first()
-        if not tx: 
-            return None
-        if tx.status == TxStatus.SUCCEEDED:
-            return tx  # idempotent
-        await pay_crud.adjust_wallet_balance(db, tx.user_id, tx.amount_cents)
-        await pay_crud.set_tx_status(db, tx, TxStatus.SUCCEEDED)
-        await db.commit()
-        await db.refresh(tx)
-        return tx
+        # After capture, mark succeeded via on_deposit_succeeded
+        # Many providers return status; but webhook is preferred
+        await self.on_deposit_succeeded(db, provider=provider, provider_ref=provider_ref, amount_cents=None)
+        return await pay_crud.get_tx_by_provider_ref(db, provider, provider_ref)
 
     async def withdraw(self, db: AsyncSession, *, user_id: int, amount_cents: int, provider: str, destination: str, idempotency_key: str | None):
         prov = self.providers[provider]
@@ -63,9 +58,45 @@ class PaymentsService:
             status=TxStatus.PENDING,
             idempotency_key=idempotency_key,
         )
-        meta = await prov.payout(user_id=user_id, amount_cents=amount_cents, destination=destination, idempotency_key=idempotency_key)
+        try:
+            meta = await prov.payout(user_id=user_id, amount_cents=amount_cents, destination=destination, idempotency_key=idempotency_key)
+        except Exception as exc:
+            # refund on immediate failure
+            await pay_crud.adjust_wallet_balance(db, user_id, amount_cents)
+            tx.status = TxStatus.FAILED
+            tx.error = str(exc)
+            await db.commit()
+            await db.refresh(tx)
+            raise
         tx.provider_ref = meta.get("provider_ref")
+        db.add(tx)
+        # keep tx pending; finalize via webhook
+        await db.commit()
+        await db.refresh(tx)
+        return tx, meta
+
+    async def on_withdraw_succeeded(self, db: AsyncSession, *, provider: str, provider_ref: str):
+        tx = await pay_crud.get_tx_by_provider_ref(db, provider, provider_ref)
+        if not tx:
+            return None
+        if tx.status == TxStatus.SUCCEEDED:
+            return tx
         await pay_crud.set_tx_status(db, tx, TxStatus.SUCCEEDED)
+        await db.commit()
+        await db.refresh(tx)
+        return tx
+
+    async def on_withdraw_failed(self, db: AsyncSession, *, provider: str, provider_ref: str, error: Optional[str] = None):
+        tx = await pay_crud.get_tx_by_provider_ref(db, provider, provider_ref)
+        if not tx:
+            return None
+        if tx.status == TxStatus.SUCCEEDED:
+            # already paid; too late to refund automatically
+            return tx
+        # refund the held funds
+        await pay_crud.adjust_wallet_balance(db, tx.user_id, tx.amount_cents)
+        tx.error = error
+        await pay_crud.set_tx_status(db, tx, TxStatus.FAILED)
         await db.commit()
         await db.refresh(tx)
         return tx
@@ -110,4 +141,35 @@ class PaymentsService:
         )
         await db.commit()
         await db.refresh(tx)
+        return tx
+    
+    async def on_deposit_succeeded(self, db: AsyncSession, *, provider: str, provider_ref: str, amount_cents: int | None = None):
+        tx = (await db.execute(
+            select(Transaction).where(Transaction.provider == provider, Transaction.provider_ref == provider_ref)
+        )).scalars().first()
+        if not tx:
+            # (Optional) create a shadow record or log an error
+            return None
+        if tx.status == TxStatus.SUCCEEDED:
+            return tx  # idempotent
+        if amount_cents is not None and tx.amount_cents != amount_cents:
+            # depending on provider rounding/fees you may relax this
+            pass
+        await pay_crud.adjust_wallet_balance(db, tx.user_id, tx.amount_cents)
+        await pay_crud.set_tx_status(db, tx, TxStatus.SUCCEEDED)
+        await db.commit()
+        await db.refresh(tx)
+        return tx
+
+    async def on_deposit_failed(self, db: AsyncSession, *, provider: str, provider_ref: str, error: str | None = None):
+        tx = (await db.execute(
+            select(Transaction).where(Transaction.provider == provider, Transaction.provider_ref == provider_ref)
+        )).scalars().first()
+        if not tx:
+            return None
+        if tx.status != TxStatus.SUCCEEDED:
+            tx.error = error
+            await pay_crud.set_tx_status(db, tx, TxStatus.FAILED)
+            await db.commit()
+            await db.refresh(tx)
         return tx

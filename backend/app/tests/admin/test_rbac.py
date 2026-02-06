@@ -2,8 +2,8 @@
 import pytest
 
 @pytest.mark.asyncio
-async def test_admin_route_forbidden_for_normal_user(client, user_headers):
-    r = await client.get("/admin/health", headers=user_headers)
+async def test_admin_route_forbidden_for_normal_user(client, auth_headers):
+    r = await client.get("/admin/health", headers=auth_headers)
     assert r.status_code == 403
 
 @pytest.mark.asyncio

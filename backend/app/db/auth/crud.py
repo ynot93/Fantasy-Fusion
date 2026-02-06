@@ -11,10 +11,10 @@ async def get_user_by_email(db: AsyncSession, email: str):
     return result.scalars().first()
 
 
-async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User:
-    hashed_password = security.get_password_hash(user.password)
-    db_user = models.User(username=user.username, email=user.email, hashed_password=hashed_password)
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
-    return db_user
+# async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User:
+#     hashed_password = security.get_password_hash(user.password)
+#     db_user = models.User(username=user.username, email=user.email, hashed_password=hashed_password)
+#     db.add(db_user)
+#     await db.commit()
+#     await db.refresh(db_user)
+#     return db_user

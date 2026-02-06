@@ -11,7 +11,8 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255))
+    phone_number: Mapped[str | None] = mapped_column(String(12), unique=True, index=True, nullable=True)
+    # hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[Role] = mapped_column(Enum(Role), default=Role.user, nullable=False)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.active, nullable=False)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -23,3 +24,6 @@ class User(Base):
     leagues_created = relationship("League", back_populates="created_by")
     leagues_joined = relationship("League", secondary=league_members, back_populates="members")
     wallet = relationship('Wallet', back_populates="user", uselist=False)
+
+    fpl_manager_id: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    fpl_session_cookie: Mapped[str | None] = mapped_column(String, nullable=True)

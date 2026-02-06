@@ -22,11 +22,14 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_role(Role.admin, Role.super_admin))
 ):
-    stmt = select(User)
-    if role: stmt = stmt.where(User.role == role)
-    if status: stmt = stmt.where(User.status == status)
-    if q: stmt = stmt.where(User.email.ilike(f"%{q}%"))
-    rows = (await db.execute(stmt)).scalars().all()
+    statement = select(User)
+    if role:
+        statement = statement.where(User.role == role)
+    if status:
+        statement = statement.where(User.status == status)
+    if q:
+        statement = statement.where(User.email.ilike(f"%{q}%"))
+    rows = (await db.execute(statement)).scalars().all()
     return rows
 
 @router.get("/{user_id}", response_model=AdminUserDetail)

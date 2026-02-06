@@ -5,12 +5,13 @@ from app.db.payments.models import Wallet, Transaction, LeaguePot, TxType, TxSta
 from sqlalchemy import text
 
 async def get_or_create_wallet(db: AsyncSession, user_id: int) -> Wallet:
-    w = await db.get(Wallet, user_id)
-    if w: return w
-    w = Wallet(user_id=user_id, balance_cents=0)
-    db.add(w)
+    wallet = await db.get(Wallet, user_id)
+    if wallet:
+        return wallet
+    wallet = Wallet(user_id=user_id, balance_cents=0)
+    db.add(wallet)
     await db.flush()
-    return w
+    return wallet
 
 async def create_tx(db: AsyncSession, **kwargs) -> Transaction:
     tx = Transaction(**kwargs)
@@ -23,6 +24,11 @@ async def set_tx_status(db: AsyncSession, tx: Transaction, status: TxStatus, err
     tx.error = error
     await db.flush()
     return tx
+
+async def get_tx_by_provider_ref(db: AsyncSession, provider: str, provider_ref: str) -> Transaction | None:
+    q = select(Transaction).where(Transaction.provider==provider, Transaction.provider_ref==provider_ref)
+    result = await db.execute(q)
+    return result.scalars().first()
 
 # Use a SELECT ... FOR UPDATE to prevent race conditions when changing balances/pots.
 async def adjust_wallet_balance(db: AsyncSession, user_id: int, delta_cents: int):
