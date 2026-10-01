@@ -4,7 +4,7 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from app.core.config import settings
-import base64, httpx, stripe, time
+import base64, httpx, stripe
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -47,26 +47,6 @@ async def get_mpesa_access_token():
 def stk_password(shortcode: str, passkey: str, timestamp: str) -> str:
     raw = f"{shortcode}{passkey}{timestamp}".encode()
     return base64.b64encode(raw).decode()
-
-async def get_pesapal_token() -> str:
-        now = time.time()
-        exp_ts: float = 0.0
-        if token and now < exp_ts:
-            return token
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{settings.PESAPAL_BASE_URL}/api/Auth/RequestToken",
-                json={
-                    "consumer_key": settings.PESAPAL_CONSUMER_KEY,
-                    "consumer_secret": settings.PESAPAL_CONSUMER_SECRET
-                }
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            token = data["token"]
-            # sandbox gives e.g. 3600s expiry
-            exp_ts = now + int(data.get("expiry", 3000))
-            return token
 
 # --- Utility to get the raw request body for webhook verification ---
 async def get_body(request: Request) -> bytes:

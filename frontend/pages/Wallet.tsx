@@ -1,10 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 // FIX: Import `Variants` from `framer-motion` to correctly type animation variants.
 import { motion, Variants } from 'framer-motion';
 import { fantasyApi } from '../services/fantasyApi';
 import { Transaction } from '../types';
 import { DollarSignIcon, WalletIcon, HourglassIcon, CheckCircleIcon, PlusIcon } from '../components/Icons';
+import Modal from '../components/Modal';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -70,21 +71,57 @@ const Wallet: React.FC = () => {
   const [pendingWinnings, setPendingWinnings] = useState(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDepositOpen, setIsDepositOpen] = useState(false);
+  const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState(100);
+  const [withdrawAmount, setWithdrawAmount] = useState(100);
+  const [withdrawPhone, setWithdrawPhone] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    const [walletDetails, transactionHistory] = await Promise.all([
+      fantasyApi.getWalletDetails(),
+      fantasyApi.getTransactions(),
+    ]);
+    setBalance(walletDetails.currentBalance);
+    setPendingWinnings(walletDetails.pendingWinnings);
+    setTransactions(transactionHistory);
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setIsLoading(true);
-      const [walletDetails, transactionHistory] = await Promise.all([
-        fantasyApi.getWalletDetails(),
-        fantasyApi.getTransactions(),
-      ]);
-      setBalance(walletDetails.currentBalance);
-      setPendingWinnings(walletDetails.pendingWinnings);
-      setTransactions(transactionHistory);
-      setIsLoading(false);
-    };
     fetchData();
-  }, []);
+  }, [fetchData]);
+
+  const handleDeposit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    const result = await fantasyApi.deposit(depositAmount);
+    setIsSubmitting(false);
+    alert(result.message);
+    if (result.success) {
+      setIsDepositOpen(false);
+      fetchData();
+    }
+  };
+
+  const handleWithdraw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!withdrawPhone.trim()) {
+      alert('Please enter an M-Pesa phone number.');
+      return;
+    }
+    setIsSubmitting(true);
+    const result = await fantasyApi.withdraw(withdrawAmount, withdrawPhone.trim());
+    setIsSubmitting(false);
+    alert(result.message);
+    if (result.success) {
+      setIsWithdrawOpen(false);
+      setWithdrawPhone('');
+      fetchData();
+    }
+  };
 
   if (isLoading) {
     return <div className="text-center p-10">Loading wallet details...</div>;
@@ -116,10 +153,10 @@ const Wallet: React.FC = () => {
 
       {/* Actions */}
       <div className="flex flex-wrap gap-4 mb-8">
-        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg">
+        <motion.button onClick={() => setIsDepositOpen(true)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex items-center gap-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg">
             <PlusIcon className="w-5 h-5"/> Add Funds
         </motion.button>
-        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex items-center gap-2 bg-brand-secondary text-white font-bold py-3 px-6 rounded-lg border border-brand-border">
+        <motion.button onClick={() => setIsWithdrawOpen(true)} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="flex items-center gap-2 bg-brand-secondary text-white font-bold py-3 px-6 rounded-lg border border-brand-border">
             <DollarSignIcon className="w-5 h-5"/> Withdraw
         </motion.button>
       </div>
@@ -146,6 +183,70 @@ const Wallet: React.FC = () => {
             </div>
         </div>
       </div>
+
+      <Modal title="Add Funds via M-Pesa" isOpen={isDepositOpen} onClose={() => setIsDepositOpen(false)}>
+        <form onSubmit={handleDeposit} className="space-y-4">
+          <div>
+            <label htmlFor="depositAmount" className="block text-sm font-medium text-slate-300">Amount (Ksh)</label>
+            <input
+              type="number"
+              id="depositAmount"
+              value={depositAmount}
+              min={1}
+              onChange={(e) => setDepositAmount(Number(e.target.value))}
+              className="mt-1 block w-full bg-brand-dark border border-brand-border rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-brand-primary-accent focus:border-brand-primary-accent"
+              required
+            />
+          </div>
+          <motion.button
+            type="submit"
+            disabled={isSubmitting}
+            whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
+            whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
+            className="w-full flex justify-center items-center bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg disabled:opacity-60"
+          >
+            {isSubmitting ? 'Processing…' : 'Deposit with M-Pesa'}
+          </motion.button>
+        </form>
+      </Modal>
+
+      <Modal title="Withdraw to M-Pesa" isOpen={isWithdrawOpen} onClose={() => setIsWithdrawOpen(false)}>
+        <form onSubmit={handleWithdraw} className="space-y-4">
+          <div>
+            <label htmlFor="withdrawAmount" className="block text-sm font-medium text-slate-300">Amount (Ksh)</label>
+            <input
+              type="number"
+              id="withdrawAmount"
+              value={withdrawAmount}
+              min={1}
+              onChange={(e) => setWithdrawAmount(Number(e.target.value))}
+              className="mt-1 block w-full bg-brand-dark border border-brand-border rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-brand-primary-accent focus:border-brand-primary-accent"
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="withdrawPhone" className="block text-sm font-medium text-slate-300">M-Pesa Phone Number</label>
+            <input
+              type="tel"
+              id="withdrawPhone"
+              value={withdrawPhone}
+              onChange={(e) => setWithdrawPhone(e.target.value)}
+              placeholder="e.g. 2547XXXXXXXX"
+              className="mt-1 block w-full bg-brand-dark border border-brand-border rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-brand-primary-accent focus:border-brand-primary-accent"
+              required
+            />
+          </div>
+          <motion.button
+            type="submit"
+            disabled={isSubmitting}
+            whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
+            whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
+            className="w-full flex justify-center items-center bg-brand-secondary text-white font-bold py-3 px-6 rounded-lg border border-brand-border disabled:opacity-60"
+          >
+            {isSubmitting ? 'Processing…' : 'Request Withdrawal'}
+          </motion.button>
+        </form>
+      </Modal>
     </motion.div>
   );
 };

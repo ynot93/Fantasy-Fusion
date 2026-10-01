@@ -3,8 +3,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AdminUser, UserStatus, UserRole } from '../../types';
 import { fantasyApi } from '../../services/fantasyApi';
-// FIX: Import `UsersIcon` to resolve reference error.
-import { MoreVerticalIcon, SlashIcon, KeyIcon, ShieldCheckIcon, UsersIcon } from '../../components/Icons';
+import { useAuth } from '../../context/AuthContext';
+import { MoreVerticalIcon, SlashIcon, ShieldCheckIcon, UsersIcon } from '../../components/Icons';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -12,18 +12,31 @@ const pageVariants = {
   out: { opacity: 0, y: -20 },
 };
 
+const roleLabels: Record<UserRole, string> = {
+  super_admin: 'Super Admin',
+  admin: 'Admin',
+  user: 'User',
+};
+
 const roleColors: Record<UserRole, string> = {
-  Admin: 'bg-red-500/20 text-red-300',
-  Moderator: 'bg-yellow-500/20 text-yellow-300',
-  User: 'bg-blue-500/20 text-blue-300',
+  super_admin: 'bg-red-500/20 text-red-300',
+  admin: 'bg-yellow-500/20 text-yellow-300',
+  user: 'bg-blue-500/20 text-blue-300',
+};
+
+const statusLabels: Record<UserStatus, string> = {
+  active: 'Active',
+  suspended: 'Suspended',
 };
 
 const statusColors: Record<UserStatus, string> = {
-  Active: 'bg-green-500/20 text-green-300',
-  Banned: 'bg-slate-500/20 text-slate-400',
+  active: 'bg-green-500/20 text-green-300',
+  suspended: 'bg-slate-500/20 text-slate-400',
 };
 
 const UserManagement: React.FC = () => {
+  const { user: currentUser } = useAuth();
+  const canChangeRoles = currentUser?.role === 'super_admin';
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -104,14 +117,14 @@ const UserManagement: React.FC = () => {
         />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="bg-brand-dark border border-brand-border rounded-md py-2 px-3 text-white focus:outline-none focus:ring-brand-primary-accent focus:border-brand-primary-accent">
           <option value="All">All Statuses</option>
-          <option value="Active">Active</option>
-          <option value="Banned">Banned</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
         </select>
          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value as any)} className="bg-brand-dark border border-brand-border rounded-md py-2 px-3 text-white focus:outline-none focus:ring-brand-primary-accent focus:border-brand-primary-accent">
           <option value="All">All Roles</option>
-          <option value="Admin">Admin</option>
-          <option value="Moderator">Moderator</option>
-          <option value="User">User</option>
+          <option value="super_admin">Super Admin</option>
+          <option value="admin">Admin</option>
+          <option value="user">User</option>
         </select>
       </div>
 
@@ -139,10 +152,10 @@ const UserManagement: React.FC = () => {
                   </div>
                 </td>
                 <td className="px-3 py-4 text-sm text-slate-300">
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${roleColors[user.role]}`}>{user.role}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${roleColors[user.role]}`}>{roleLabels[user.role]}</span>
                 </td>
                 <td className="px-3 py-4 text-sm text-slate-300">
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[user.status]}`}>{user.status}</span>
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[user.status]}`}>{statusLabels[user.status]}</span>
                 </td>
                 <td className="hidden md:table-cell px-3 py-4 text-sm text-slate-300">{new Date(user.joinedDate).toLocaleDateString()}</td>
                 <td className="relative py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6" ref={openMenuId === user.id ? menuRef : null}>
@@ -159,32 +172,20 @@ const UserManagement: React.FC = () => {
                     >
                         <ul className="py-1">
                             <li>
-                                <button onClick={() => handleUpdateStatus(user.id, user.status === 'Active' ? 'Banned' : 'Active')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
-                                    <SlashIcon className="w-4 h-4"/>{user.status === 'Active' ? 'Ban User' : 'Unban User'}
+                                <button onClick={() => handleUpdateStatus(user.id, user.status === 'active' ? 'suspended' : 'active')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
+                                    <SlashIcon className="w-4 h-4"/>{user.status === 'active' ? 'Suspend User' : 'Reactivate User'}
                                 </button>
                             </li>
-                            <li>
-                                <button onClick={() => alert('Password reset email sent!')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
-                                    <KeyIcon className="w-4 h-4"/>Reset Password
-                                </button>
-                            </li>
-                            {user.role !== 'Admin' && 
+                            {canChangeRoles && user.role !== 'admin' &&
                                 <li>
-                                    <button onClick={() => handleUpdateRole(user.id, 'Admin')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
+                                    <button onClick={() => handleUpdateRole(user.id, 'admin')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
                                         <ShieldCheckIcon className="w-4 h-4"/>Make Admin
                                     </button>
                                 </li>
                             }
-                            {user.role !== 'Moderator' && 
+                             {canChangeRoles && user.role !== 'user' &&
                                 <li>
-                                    <button onClick={() => handleUpdateRole(user.id, 'Moderator')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
-                                        <ShieldCheckIcon className="w-4 h-4"/>Make Moderator
-                                    </button>
-                                </li>
-                            }
-                             {user.role !== 'User' && 
-                                <li>
-                                    <button onClick={() => handleUpdateRole(user.id, 'User')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
+                                    <button onClick={() => handleUpdateRole(user.id, 'user')} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
                                         <UsersIcon className="w-4 h-4"/>Make User
                                     </button>
                                 </li>

@@ -41,8 +41,14 @@ class FPLAdapter:
     async def bootstrap_static(self, ttl: int = 300) -> dict:
         cached = await _cache.get("bootstrap-static")
         if cached: return cached
-        
-        data = await self._fpl.get_bootstrap_static()
+
+        # The installed `fpl` package has no get_bootstrap_static() method
+        # (its FPL client only exposes get_players/get_teams/etc, each of
+        # which issues its own request) — fetch the raw endpoint directly.
+        async with self._session.get("https://fantasy.premierleague.com/api/bootstrap-static/") as resp:
+            if resp.status != 200:
+                raise Exception(f"Failed to fetch bootstrap-static: {resp.status}")
+            data = await resp.json()
         await _cache.set("bootstrap-static", data, ttl_seconds=ttl)
         return data
 
@@ -90,7 +96,11 @@ class FPLAdapter:
             }
 
         except Exception as e:
-            logger.error(f"Login failed: {str(e)}")
+            # This function is the one place the user's real FPL password
+            # passes through our process. Never log exception content here -
+            # depending on the underlying client it could echo request
+            # details - only the exception type.
+            logger.error("FPL login failed: %s", type(e).__name__)
             # Ensure we clean up even on failure
             self._session.cookie_jar.clear()
             raise e
@@ -107,13 +117,13 @@ class FPLAdapter:
         self._session.cookie_jar.update_cookies({"pl_profile": auth_cookie})
         
         try:
-            # 2. Call the protected endpoint
-            # Note: We use get_entry_picks (which is generally public)
-            # BUT if you need 'my-team' (which includes bank/transfers), use:
-            # await self._session.get(f"https://fantasy.premierleague.com/api/my-team/{entry_id}/")
-            
-            picks = await self._fpl.get_entry_picks(entry_id, event_id)
-            return picks
+            # The installed `fpl` package has no get_entry_picks() method —
+            # fetch the picks endpoint directly, same as get_my_team() below.
+            url = f"https://fantasy.premierleague.com/api/entry/{entry_id}/event/{event_id}/picks/"
+            async with self._session.get(url) as resp:
+                if resp.status != 200:
+                    raise Exception(f"Failed to get picks: {resp.status}")
+                return await resp.json()
         finally:
             # 3. CLEAN UP: Remove cookies so we don't leak this user's session to others
             self._session.cookie_jar.clear()
@@ -130,13 +140,12 @@ class FPLAdapter:
             return cached_data
 
         try:
-            # Use the underlying FPL client method
-            entry = await self._fpl.get_entry(entry_id)
-            # Convert the FPL object to a dictionary for FastAPI response and caching
-            entry_data = entry.__dict__ 
+            # The installed `fpl` package has no get_entry() — the equivalent
+            # is get_user(), which already returns a plain dict when asked.
+            entry_data = await self._fpl.get_user(entry_id, return_json=True)
 
             # Cache the result for 1 hour (public data)
-            await _cache.set(cache_key, entry_data, ttl_seconds=ttl) 
+            await _cache.set(cache_key, entry_data, ttl_seconds=ttl)
             return entry_data
         except Exception as e:
             logger.error(f"FPL API error fetching entry {entry_id}: {e}")

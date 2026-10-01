@@ -30,6 +30,17 @@ async def get_tx_by_provider_ref(db: AsyncSession, provider: str, provider_ref: 
     result = await db.execute(q)
     return result.scalars().first()
 
+async def list_transactions_for_user(db: AsyncSession, user_id: int, *, limit: int = 50, offset: int = 0) -> list[Transaction]:
+    q = (
+        select(Transaction)
+        .where(Transaction.user_id == user_id)
+        .order_by(Transaction.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(q)
+    return result.scalars().all()
+
 # Use a SELECT ... FOR UPDATE to prevent race conditions when changing balances/pots.
 async def adjust_wallet_balance(db: AsyncSession, user_id: int, delta_cents: int):
     await db.execute(text("BEGIN"))

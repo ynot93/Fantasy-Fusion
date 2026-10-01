@@ -10,7 +10,8 @@ from app.db.admin.schemas import (
     AdminUserBase, AdminUserDetail, AdminUserUpdate,
     AdminChangeRole, AdminAdjustBalance
 )
-from app.db.payments.crud import adjust_wallet_balance
+from app.db.payments.crud import adjust_wallet_balance, create_tx
+from app.db.payments.models import TxType, TxStatus
 
 router = APIRouter(prefix="/admin/users", tags=["admin:users"])
 
@@ -75,6 +76,18 @@ async def adjust_balance(
 ):
     try:
         await adjust_wallet_balance(db, user_id, payload.delta_cents)
+        # ADJUSTMENT keeps delta_cents' own sign (credit or debit), unlike other
+        # tx types where amount_cents is a positive magnitude and `type` implies direction.
+        await create_tx(
+            db,
+            user_id=user_id,
+            type=TxType.ADJUSTMENT,
+            provider=None,
+            amount_cents=payload.delta_cents,
+            currency="KES",
+            status=TxStatus.SUCCEEDED,
+            error=payload.reason,
+        )
         # record audit log (omitted for brevity)
         await db.commit()
         return {"ok": True}

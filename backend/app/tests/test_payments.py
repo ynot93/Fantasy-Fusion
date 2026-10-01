@@ -25,6 +25,7 @@ async def test_deposit_flow_marks_pending_and_confirm_via_webhook(client, auth_h
     # init deposit
     r = await client.post("/payments/wallet/deposit", json={
         "amount_cents": 50000,
+        "currency": "KES",
         "provider": "STRIPE",
         "idempotency_key": "dep-123"
     }, headers=auth_headers)
@@ -81,8 +82,8 @@ async def test_withdraw_checks_balance_and_succeeds(client, auth_headers, db_ses
     # withdraw
     r = await client.post("/payments/wallet/withdraw", json={
         "amount_cents": 3000,
-        "provider": "PAYPAL",
-        "destination": "payer@example.com"
+        "provider": "MPESA",
+        "destination": "254700000003"
     }, headers=auth_headers)
     assert r.status_code == 201
 
@@ -129,6 +130,7 @@ async def test_deposit_webhook_is_idempotent(client, auth_headers, db_session):
     amount = 25000
     resp = await client.post("/payments/wallet/deposit", json={
         "amount_cents": amount,
+        "currency": "KES",
         "provider": "STRIPE",
         "idempotency_key": "dep-web-idemp"
     }, headers=auth_headers)

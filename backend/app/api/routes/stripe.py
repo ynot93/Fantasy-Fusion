@@ -5,7 +5,7 @@ from app.core.security import get_body
 from app.core.config import settings
 import stripe
 
-router = APIRouter(prefix="/stripe", tags=["stripe, payments"])
+router = APIRouter(tags=["stripe, payments"])
 
 @router.get("/create-payment-intent")
 async def create_payment_intent(amount: int, user_id: str):

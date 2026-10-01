@@ -1,20 +1,13 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Fantasy Fusion — Frontend
 
-# Run and deploy your AI Studio app
+React 19 + Vite SPA for Fantasy Fusion. See the [repo root README](../README.md) for full setup, environment variables, API reference, and project-wide documentation.
 
-This contains everything you need to run your app locally.
+## Quick start
 
-View your app in AI Studio: https://ai.studio/apps/drive/1Ur2Ff8hUEIgkZ04dniv3v2-9IBWCCj3u
+```bash
+npm install
+cp .env.example .env.local   # set VITE_API_BASE_URL to your running backend
+npm run dev                  # http://localhost:3000
+```
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+Requires the backend (`../backend/`) running and reachable at `VITE_API_BASE_URL`, with CORS configured to allow this origin.

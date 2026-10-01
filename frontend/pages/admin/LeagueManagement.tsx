@@ -11,11 +11,16 @@ const pageVariants = {
   out: { opacity: 0, y: -20 },
 };
 
+const statusLabels: Record<LeagueStatus, string> = {
+  open: 'Open',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+};
+
 const statusColors: Record<LeagueStatus, string> = {
-  Open: 'bg-green-500/20 text-green-300',
-  Ongoing: 'bg-blue-500/20 text-blue-300',
-  Completed: 'bg-slate-500/20 text-slate-400',
-  'Payouts Approved': 'bg-yellow-500/20 text-yellow-300',
+  open: 'bg-green-500/20 text-green-300',
+  ongoing: 'bg-blue-500/20 text-blue-300',
+  completed: 'bg-slate-500/20 text-slate-400',
 };
 
 const LeagueManagement: React.FC = () => {
@@ -57,12 +62,12 @@ const LeagueManagement: React.FC = () => {
                         {leagues.map(league => (
                             <tr key={league.id} onClick={() => navigate(`/admin/leagues/${league.id}`)} className="hover:bg-brand-dark/50 cursor-pointer transition-colors">
                                 <td className="py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{league.name}</td>
-                                <td className="px-3 py-4 text-sm text-slate-300">{league.creator.name}</td>
+                                <td className="px-3 py-4 text-sm text-slate-300">{league.creator?.name ?? 'Unknown'}</td>
                                 <td className="hidden sm:table-cell px-3 py-4 text-sm text-slate-300">Ksh {league.entryFee}</td>
-                                <td className="px-3 py-4 text-sm text-slate-300">{league.participants}/{league.maxParticipants}</td>
+                                <td className="px-3 py-4 text-sm text-slate-300">{league.participants}{league.maxParticipants !== null ? `/${league.maxParticipants}` : ''}</td>
                                 <td className="hidden md:table-cell px-3 py-4 text-sm text-slate-300">Ksh {league.prizePool.toLocaleString()}</td>
                                 <td className="px-3 py-4 text-sm">
-                                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[league.status]}`}>{league.status}</span>
+                                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[league.status]}`}>{statusLabels[league.status]}</span>
                                 </td>
                                 <td className="relative py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                     <ChevronRightIcon className="w-5 h-5 text-slate-400" />

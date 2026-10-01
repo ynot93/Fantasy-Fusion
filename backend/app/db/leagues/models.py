@@ -23,6 +23,8 @@ class League(Base):
     entry_fee_cents: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     prize_scheme: Mapped[dict] = mapped_column(JSON, default={"first":60,"second":30,"third":10})  # %
     official: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    max_members: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_by = relationship("User", back_populates="leagues_created")
     members = relationship("User", secondary=league_members, lazy="selectin", back_populates="leagues_joined")

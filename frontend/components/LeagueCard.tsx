@@ -18,7 +18,8 @@ const cardVariants = {
 const LeagueCard: React.FC<LeagueCardProps> = ({ league, onJoin, isJoined }) => {
   const members = league.members.length;
   const maxMembers = league.maxMembers;
-  const isFull = members >= maxMembers;
+  const isFull = maxMembers !== null && members >= maxMembers;
+  const fillPercent = maxMembers !== null ? (members / maxMembers) * 100 : 0;
 
   return (
     <motion.div
@@ -37,19 +38,21 @@ const LeagueCard: React.FC<LeagueCardProps> = ({ league, onJoin, isJoined }) => 
           </div>
           <div className="flex items-center">
             <UsersIcon className="w-5 h-5 mr-3 text-brand-primary-accent" />
-            <span>Members: <span className="font-bold text-white">{members} / {maxMembers}</span></span>
+            <span>Members: <span className="font-bold text-white">{members}{maxMembers !== null ? ` / ${maxMembers}` : ''}</span></span>
           </div>
         </div>
 
-        <div className="w-full bg-slate-700 rounded-full h-2.5 mt-4">
-          <motion.div
-            className="bg-gradient-to-r from-pink-500 to-purple-500 h-2.5 rounded-full"
-            style={{ width: `${(members / maxMembers) * 100}%` }}
-            initial={{ width: 0 }}
-            animate={{ width: `${(members / maxMembers) * 100}%` }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-          />
-        </div>
+        {maxMembers !== null && (
+          <div className="w-full bg-slate-700 rounded-full h-2.5 mt-4">
+            <motion.div
+              className="bg-gradient-to-r from-pink-500 to-purple-500 h-2.5 rounded-full"
+              style={{ width: `${fillPercent}%` }}
+              initial={{ width: 0 }}
+              animate={{ width: `${fillPercent}%` }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+            />
+          </div>
+        )}
       </div>
       
       <div className="p-4 bg-black/20">

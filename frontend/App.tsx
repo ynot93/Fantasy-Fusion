@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 
 import Layout from './components/Layout';
@@ -8,10 +8,10 @@ import MyLeagues from './pages/MyLeagues';
 import Profile from './pages/Profile';
 import Wallet from './pages/Wallet';
 import Login from './pages/Login';
-import Signup from './pages/Signup';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import ResponsibleGaming from './pages/ResponsibleGaming';
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Admin Imports
 import AdminLayout from './components/admin/AdminLayout';
@@ -32,15 +32,15 @@ function App() {
   if (isAdminRoute) {
     return (
       <AdminLayout>
-        <Routes location={location} key={location.pathname}>
-            <Route path="/admin/dashboard" element={<AdminDashboard />} />
-            <Route path="/admin/users" element={<UserManagement />} />
-            <Route path="/admin/leagues" element={<LeagueManagement />} />
-            <Route path="/admin/leagues/:leagueId" element={<LeagueDetailPage />} />
-            <Route path="/admin/transactions" element={<Transactions />} />
-            <Route path="/admin/content" element={<ContentManagement />} />
-            <Route path="/admin/reports" element={<Reports />} />
-            <Route path="/admin/settings" element={<SystemSettings />} />
+        <Routes location={location}>
+            <Route path="/admin/dashboard" element={<ProtectedRoute roles={['admin', 'super_admin']}><AdminDashboard /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute roles={['admin', 'super_admin']}><UserManagement /></ProtectedRoute>} />
+            <Route path="/admin/leagues" element={<ProtectedRoute roles={['admin', 'super_admin']}><LeagueManagement /></ProtectedRoute>} />
+            <Route path="/admin/leagues/:leagueId" element={<ProtectedRoute roles={['admin', 'super_admin']}><LeagueDetailPage /></ProtectedRoute>} />
+            <Route path="/admin/transactions" element={<ProtectedRoute roles={['admin', 'super_admin']}><Transactions /></ProtectedRoute>} />
+            <Route path="/admin/content" element={<ProtectedRoute roles={['admin', 'super_admin']}><ContentManagement /></ProtectedRoute>} />
+            <Route path="/admin/reports" element={<ProtectedRoute roles={['admin', 'super_admin']}><Reports /></ProtectedRoute>} />
+            <Route path="/admin/settings" element={<ProtectedRoute roles={['admin', 'super_admin']}><SystemSettings /></ProtectedRoute>} />
         </Routes>
       </AdminLayout>
     )
@@ -51,13 +51,13 @@ function App() {
       <AnimatePresence mode="wait">
         <Routes location={location} key={location.pathname}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/leagues" element={<Dashboard />} />
-          <Route path="/my-leagues" element={<MyLeagues />} />
-          <Route path="/wallet" element={<Wallet />} />
-          <Route path="/profile" element={<Profile />} />
+          <Route path="/my-leagues" element={<ProtectedRoute><MyLeagues /></ProtectedRoute>} />
+          <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/signup" element={<Navigate to="/login" replace />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/responsible-gaming" element={<ResponsibleGaming />} />

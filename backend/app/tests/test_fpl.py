@@ -7,6 +7,7 @@ from yarl import URL
 from app.services.fpl_adapter import FPLAdapter
 from app.api.deps import get_current_active_fpl_user, get_current_user
 from app.api.deps_fpl import get_fpl_adapter
+from app.core.security import create_access_token
 from app.main import app
 from app.db.auth import models
 from fastapi import status
@@ -18,34 +19,12 @@ TEST_EMAIL = "fpl_manager@test.com"
 TEST_PASSWORD = "StrongFPLPassword"
 TEST_MANAGER_ID = 55555
 TEST_COOKIE_VALUE = "valid-fpl-session-token-xyz"
-TEST_JWT_TOKEN = "test.jwt.token"
 TEST_USER_ID = 99
 
 # --- FIXTURES ---
-
-@pytest.fixture
-def mock_fpl_adapter():
-    """Mock the FPL Adapter to control external API responses."""
-    mock = MagicMock(spec=FPLAdapter)
-    mock.bootstrap_static = AsyncMock(return_value={"teams": [{"name": "Arsenal"}]})
-    mock.get_entry = AsyncMock(return_value={"entry": {"name": "Public User"}})
-    mock.get_entry_picks = AsyncMock(return_value={"picks": [1, 2, 3]})
-    mock.get_my_team = AsyncMock(return_value={"team": "My Squad", "bank": 10.0})
-    
-    # Mock the login success path
-    mock.login_and_get_details = AsyncMock(return_value={
-        "manager_id": TEST_MANAGER_ID, 
-        "cookie": TEST_COOKIE_VALUE
-    })
-    
-    return mock
-
-@pytest.fixture
-def override_get_adapter(mock_fpl_adapter):
-    """Override the FastAPI adapter dependency."""
-    app.dependency_overrides[get_fpl_adapter] = lambda: mock_fpl_adapter
-    yield
-    del app.dependency_overrides[get_fpl_adapter]
+# mock_fpl_adapter / override_get_adapter now live in conftest.py so every
+# test module (league/payments/admin) can reuse the same FPL-login mocking
+# pattern instead of re-deriving it.
 
 @pytest_asyncio.fixture
 async def create_test_user(db_session: AsyncSession):
@@ -66,15 +45,11 @@ async def create_test_user(db_session: AsyncSession):
 
 @pytest_asyncio.fixture
 async def authenticated_fpl_headers(create_test_user):
-    """Generates valid auth headers for the test user."""
-    # We mock decode_token to avoid complex JWT signing in tests
-    def mock_decode_token(token: str):
-        if token == TEST_JWT_TOKEN:
-            return {"sub": str(create_test_user.id), "role": create_test_user.role.value}
-        raise Exception("Invalid token")
-
-    with patch('app.core.security.decode_token', mock_decode_token):
-        return {"Authorization": f"Bearer {TEST_JWT_TOKEN}"}
+    """Generates valid auth headers for the test user using a real JWT."""
+    token = create_access_token(
+        data={"sub": str(create_test_user.id), "role": create_test_user.role.value}
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 # --- TESTS ---
 
@@ -150,6 +125,19 @@ async def test_fpl_login_fpl_authentication_failure(client, override_get_adapter
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 @pytest.mark.asyncio
+async def test_fpl_login_rate_limited_after_repeated_attempts(client, override_get_adapter, mock_fpl_adapter):
+    """The 6th attempt within the window from the same client should be throttled."""
+    mock_fpl_adapter.login_and_get_details.side_effect = Exception("FPL Auth Failed")
+    payload = {"email": TEST_EMAIL, "password": "wrong"}
+
+    for _ in range(5):
+        resp = await client.post("/auth/fpl-login", json=payload)
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    resp = await client.post("/auth/fpl-login", json=payload)
+    assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+@pytest.mark.asyncio
 async def test_get_bootstrap_success(client, override_get_adapter, mock_fpl_adapter):
     """Test public cached endpoint /fpl/bootstrap."""
     resp = await client.get("/fpl/bootstrap")
@@ -180,15 +168,10 @@ async def test_get_my_team_unauthorized_no_jwt(client, override_get_adapter):
 async def test_get_my_team_fpl_session_expired(client, override_get_adapter, authenticated_fpl_headers, mock_fpl_adapter):
     """Test handling of FPL token expiry (401 from FPL)."""
     mock_fpl_adapter.get_my_team.side_effect = Exception("Status 401 Unauthorized")
-    
-    # Apply override to the app instance
-    app.dependency_overrides[get_fpl_adapter] = lambda: mock_fpl_adapter
-    
+
     resp = await client.get("/fpl/my-team", headers=authenticated_fpl_headers)
     assert resp.status_code == status.HTTP_401_UNAUTHORIZED
     assert "expired" in resp.json()["detail"].lower()
-    
-    del app.dependency_overrides[get_fpl_adapter]
 
 @pytest.mark.asyncio
 async def test_get_my_picks_success(client, override_get_adapter, authenticated_fpl_headers, create_test_user, mock_fpl_adapter):

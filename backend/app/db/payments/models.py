@@ -19,9 +19,7 @@ class TxStatus(str, enum.Enum):
 
 class Provider(str, enum.Enum):
     MPESA = "MPESA"
-    PAYPAL = "PAYPAL"
     STRIPE = "STRIPE"
-    PESAPAL = "PESAPAL"
 
 class Wallet(Base):
     __tablename__ = "wallets"

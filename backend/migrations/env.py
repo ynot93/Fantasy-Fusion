@@ -29,7 +29,10 @@ if config.config_file_name is not None:
 config.set_main_option("sqlalchemy.url", settings.SYNC_DATABASE_URL)
 
 # Import your models here so Alembic can detect them
-from app.db.auth import models
+from app.db.auth import models as auth_models
+from app.db.leagues import models as leagues_models
+from app.db.payments import models as payments_models
+from app.db.admin import models as admin_models
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

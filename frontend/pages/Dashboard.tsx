@@ -7,6 +7,7 @@ import { fantasyApi } from '../services/fantasyApi';
 import LeagueCard from '../components/LeagueCard';
 import Modal from '../components/Modal';
 import { PlusIcon, ArrowRightIcon, ChevronDownIcon, UsersIcon, AwardIcon, DollarSignIcon, BarChartIcon, TrophyIcon, DownloadIcon, LinkIcon } from '../components/Icons';
+import { useAuth } from '../context/AuthContext';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -41,32 +42,36 @@ const cardVariants: Variants = {
 
 // Component for the new User Dashboard view
 const UserDashboardView: React.FC = () => {
+    const { user } = useAuth();
     const [myLeagues, setMyLeagues] = useState<League[]>([]);
     const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
     const [fplSummary, setFplSummary] = useState<FplSummary | null>(null);
+    const [walletBalance, setWalletBalance] = useState(0);
     const [potentialWinnings, setPotentialWinnings] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         const fetchData = async () => {
             setIsLoading(true);
-            const [leagues, profile, summary] = await Promise.all([
+            const [leagues, profile, summary, wallet] = await Promise.all([
                 fantasyApi.getMyLeagues(),
                 fantasyApi.getUserProfile(),
-                fantasyApi.getFplSummary()
+                user ? fantasyApi.getFplSummary(user.fplManagerId) : Promise.resolve(null),
+                fantasyApi.getWalletDetails(),
             ]);
-            
+
             setMyLeagues(leagues);
             setUserProfile(profile);
             setFplSummary(summary);
+            setWalletBalance(wallet.currentBalance);
 
             const totalWinnings = leagues.reduce((sum, league) => sum + league.prizePool, 0);
             setPotentialWinnings(totalWinnings);
-            
+
             setIsLoading(false);
         };
         fetchData();
-    }, []);
+    }, [user]);
 
     const getLeagueStatus = (id: string) => {
         const statuses = ['Ongoing', 'Finished', 'Payout Pending'];
@@ -106,17 +111,17 @@ const UserDashboardView: React.FC = () => {
                             </div>
                             <div>
                                 <p className="text-slate-400 text-sm">Current Balance</p>
-                                <p className="text-3xl font-bold text-white">Ksh 1,200.00</p>
+                                <p className="text-3xl font-bold text-white">Ksh {walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
                             </div>
                         </div>
                     </div>
                      <div className="flex gap-3 mt-4">
-                     <button className="flex items-center justify-center gap-2 w-full text-center bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg">
+                     <NavLink to="/wallet" className="flex items-center justify-center gap-2 w-full text-center bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg">
                         <PlusIcon className="w-5 h-5"/> Add Funds
-                     </button>
-                     <button className="flex items-center justify-center gap-2 w-full text-center bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg">
+                     </NavLink>
+                     <NavLink to="/wallet" className="flex items-center justify-center gap-2 w-full text-center bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg">
                         <DownloadIcon className="w-5 h-5"/> Withdraw
-                     </button>
+                     </NavLink>
                    </div>
                 </motion.div>
 
@@ -125,7 +130,7 @@ const UserDashboardView: React.FC = () => {
                     <div className="flex justify-between items-start mb-4">
                         <div>
                             <p className="text-slate-400 text-sm">Gameweek Points</p>
-                            <p className="text-3xl font-bold text-white">78 <span className="text-lg text-slate-300 font-medium">/ avg. 56</span></p>
+                            <p className="text-3xl font-bold text-white">{fplSummary.gameweekPoints}</p>
                         </div>
                          <div className="bg-brand-primary-accent/20 text-brand-primary-accent rounded-full w-16 h-16 flex items-center justify-center shrink-0">
                             <BarChartIcon className="w-8 h-8"/>
@@ -191,7 +196,7 @@ const UserDashboardView: React.FC = () => {
                                     </div>
                                     <div className="text-right sm:text-left">
                                         <p className="text-sm text-slate-400">Members</p>
-                                        <p className="font-semibold text-white">{league.members.length}/{league.maxMembers}</p>
+                                        <p className="font-semibold text-white">{league.members.length}{league.maxMembers !== null ? `/${league.maxMembers}` : ''}</p>
                                     </div>
                                     <div className="text-right">
                                         <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(getLeagueStatus(league.id))}`}>
@@ -220,17 +225,17 @@ const PublicLeaguesView: React.FC = () => {
   const [newLeagueName, setNewLeagueName] = useState('');
   const [newLeagueFee, setNewLeagueFee] = useState(100);
   const navigate = useNavigate();
-  const location = useLocation();
-  const isLoggedIn = location.pathname !== '/';
+  const { isAuthenticated } = useAuth();
+  const isLoggedIn = isAuthenticated;
 
   const fetchLeagues = useCallback(async () => {
     setIsLoading(true);
     const publicLeagues = await fantasyApi.getPublicLeagues();
-    const myLeagues = await fantasyApi.getMyLeagues();
+    const myLeagues = isLoggedIn ? await fantasyApi.getMyLeagues() : [];
     setLeagues(publicLeagues);
     setMyLeagueIds(new Set(myLeagues.map(l => l.id)));
     setIsLoading(false);
-  }, []);
+  }, [isLoggedIn]);
 
   useEffect(() => {
     fetchLeagues();
@@ -269,17 +274,19 @@ const PublicLeaguesView: React.FC = () => {
     setIsPrivateLeagueModalOpen(true);
   };
   
-  const handleJoinPrivateLeague = (e: React.FormEvent) => {
+  const handleJoinPrivateLeague = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteCode.trim()) {
         alert("Please enter an invite code.");
         return;
     }
-    // Simulate joining logic
-    alert(`Successfully joined league with code: ${inviteCode}`);
-    setIsPrivateLeagueModalOpen(false);
-    setInviteCode('');
-    // Potentially navigate to the league page or refetch leagues
+    const result = await fantasyApi.joinLeagueByCode(inviteCode.trim());
+    alert(result.message);
+    if (result.success) {
+      setIsPrivateLeagueModalOpen(false);
+      setInviteCode('');
+      fetchLeagues();
+    }
   };
 
   const handleCreateLeague = async (e: React.FormEvent) => {

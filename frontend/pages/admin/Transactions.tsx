@@ -21,7 +21,9 @@ const typeColors: Record<Transaction['type'], string> = {
     deposit: 'text-green-400',
     winnings: 'text-green-400',
     withdrawal: 'text-red-400',
-    entry_fee: 'text-red-400'
+    entry_fee: 'text-red-400',
+    house_fee: 'text-red-400',
+    adjustment: 'text-slate-300',
 };
 
 const alertLevelColors: Record<FraudAlert['level'], string> = {

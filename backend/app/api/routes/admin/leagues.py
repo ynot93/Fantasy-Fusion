@@ -2,23 +2,41 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_db
 from app.core.rbac import require_role
 from app.db.admin.enums import Role, LeagueStatus
 from app.db.leagues.models import League
-from app.db.admin.schemas import AdminLeagueBase, AdminLeagueCreate, AdminLeagueUpdate, AdminPayoutRequest
-from app.db.auth.schemas import UserResponse
+from app.db.leagues.crud import get_prize_pool_cents, get_prize_pools_cents
+from app.db.auth.models import User
+from app.db.admin.schemas import AdminLeagueBase, AdminLeagueDetail, AdminLeagueCreator, AdminLeagueCreate, AdminLeagueUpdate, AdminPayoutRequest
 from app.db.payments.service import PaymentsService
+from app.api.routes.payments import get_payments_service
+from app.api.routes.leagues import _enrich_members
+from app.api.deps_fpl import get_fpl_adapter
+from app.services.fpl_adapter import FPLAdapter
+from app.db.leagues.schemas import LeagueMemberResponse
 
 router = APIRouter(prefix="/admin/leagues", tags=["admin:leagues"])
+
+
+def _to_admin_response(league: League, prize_pool_cents: int, creator: User | None) -> AdminLeagueBase:
+    return AdminLeagueBase.model_validate(league).model_copy(update={
+        "prize_pool_cents": prize_pool_cents,
+        "participant_count": len(league.members),
+        "creator": AdminLeagueCreator.model_validate(creator) if creator else None,
+    })
+
 
 @router.get("", response_model=list[AdminLeagueBase])
 async def list_leagues(
     db: AsyncSession = Depends(get_db),
     _ = Depends(require_role(Role.admin, Role.super_admin))
 ):
-    rows = (await db.execute(select(League))).scalars().all()
-    return rows
+    leagues = (await db.execute(select(League))).scalars().all()
+    pools = await get_prize_pools_cents(db, [l.id for l in leagues])
+    creator_ids = {l.created_by_id for l in leagues}
+    creators = {u.id: u for u in (await db.execute(select(User).where(User.id.in_(creator_ids)))).scalars().all()}
+    return [_to_admin_response(l, pools.get(l.id, 0), creators.get(l.created_by_id)) for l in leagues]
 
 @router.post("", response_model=AdminLeagueBase)
 async def create_league_admin(
@@ -36,13 +54,26 @@ async def create_league_admin(
         status=LeagueStatus.open,
     )
     db.add(created_league); await db.commit(); await db.refresh(created_league)
-    return created_league
+    creator = await db.get(User, created_league.created_by_id)
+    return _to_admin_response(created_league, 0, creator)
 
-@router.get("/{league_id}", response_model=AdminLeagueBase)
-async def get_league(league_id: int, db: AsyncSession = Depends(get_db), _ = Depends(require_role(Role.admin, Role.super_admin))):
+@router.get("/{league_id}", response_model=AdminLeagueDetail)
+async def get_league(
+    league_id: int,
+    db: AsyncSession = Depends(get_db),
+    _ = Depends(require_role(Role.admin, Role.super_admin)),
+    adapter: FPLAdapter = Depends(get_fpl_adapter),
+):
     league = await db.get(League, league_id)
     if not league: raise HTTPException(404, "League not found")
-    return league
+    prize_pool_cents = await get_prize_pool_cents(db, league.id)
+    creator = await db.get(User, league.created_by_id)
+    base = _to_admin_response(league, prize_pool_cents, creator)
+    member_base = [LeagueMemberResponse.model_validate(m) for m in league.members]
+    detail = AdminLeagueDetail.model_validate(base).model_copy(update={
+        "members": await _enrich_members(adapter, member_base)
+    })
+    return detail
 
 @router.patch("/{league_id}", response_model=AdminLeagueBase)
 async def update_league(league_id: int, payload: AdminLeagueUpdate, db: AsyncSession = Depends(get_db), _ = Depends(require_role(Role.admin, Role.super_admin))):
@@ -51,7 +82,9 @@ async def update_league(league_id: int, payload: AdminLeagueUpdate, db: AsyncSes
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(updated_league, k, v)
     await db.commit(); await db.refresh(updated_league)
-    return updated_league
+    prize_pool_cents = await get_prize_pool_cents(db, updated_league.id)
+    creator = await db.get(User, updated_league.created_by_id)
+    return _to_admin_response(updated_league, prize_pool_cents, creator)
 
 @router.post("/{league_id}/recalculate")
 async def recalc(league_id: int, db: AsyncSession = Depends(get_db), _ = Depends(require_role(Role.admin, Role.super_admin))):
@@ -59,9 +92,18 @@ async def recalc(league_id: int, db: AsyncSession = Depends(get_db), _ = Depends
     return {"ok": True}
 
 @router.post("/{league_id}/payouts")
-async def trigger_payouts(league_id: int, _: AdminPayoutRequest, db: AsyncSession = Depends(get_db), user: UserResponse = Depends(get_current_user) ,_r = Depends(require_role(Role.admin, Role.super_admin))):
-    result = await PaymentsService.payout_winner(db, league_id, user.id)
-    return result
+async def trigger_payouts(
+    league_id: int,
+    payload: AdminPayoutRequest,
+    db: AsyncSession = Depends(get_db),
+    svc: PaymentsService = Depends(get_payments_service),
+    _r = Depends(require_role(Role.admin, Role.super_admin)),
+):
+    try:
+        tx = await svc.payout_winner(db, league_id=league_id, winner_user_id=payload.winner_user_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"transaction_id": tx.id, "status": tx.status.value, "amount_cents": tx.amount_cents}
 
 @router.post("/{league_id}/close")
 async def close_league(league_id: int, db: AsyncSession = Depends(get_db), _ = Depends(require_role(Role.admin, Role.super_admin))):

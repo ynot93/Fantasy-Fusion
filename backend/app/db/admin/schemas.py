@@ -1,7 +1,9 @@
 # app/db/admin/schemas.py
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
 from typing import Optional, List, Dict, Annotated
+from datetime import datetime
 from app.db.admin.enums import Role, UserStatus, LeagueStatus
+from app.db.leagues.schemas import LeagueMemberResponse
 
 class AdminUserBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -11,6 +13,7 @@ class AdminUserBase(BaseModel):
     role: Role
     status: UserStatus
     is_locked: bool
+    created_at: datetime
 
 class AdminUserUpdate(BaseModel):
     email: Optional[EmailStr] = None
@@ -29,14 +32,29 @@ class AdminUserDetail(AdminUserBase):
     last_login_at: Optional[str] = None
 
 # Leagues
+class AdminLeagueCreator(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    username: str
+
 class AdminLeagueBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
+    code: str
+    created_by_id: int
+    is_private: bool
+    max_members: Optional[int] = None
     status: LeagueStatus
     entry_fee_cents: int
+    prize_pool_cents: int = 0
+    participant_count: int = 0
     prize_scheme: Dict[str,int]
     official: bool
+    creator: Optional[AdminLeagueCreator] = None
+
+class AdminLeagueDetail(AdminLeagueBase):
+    members: List[LeagueMemberResponse] = []
 
 class AdminLeagueCreate(BaseModel):
     name: str
@@ -52,7 +70,7 @@ class AdminLeagueUpdate(BaseModel):
     official: Optional[bool] = None
 
 class AdminPayoutRequest(BaseModel):
-    league_id: int
+    winner_user_id: int
 
 # Content
 class ContentIn(BaseModel):

@@ -1,4 +1,12 @@
 
+// The authenticated user, shaped directly after the backend's UserResponse
+export interface AuthUser {
+  id: string;
+  email: string;
+  fplManagerId: number;
+  role: 'user' | 'admin' | 'super_admin';
+}
+
 export interface Member {
   id: string;
   name: string;
@@ -9,9 +17,10 @@ export interface Member {
 
 export interface League {
   id: string;
+  code: string;
   name: string;
   entryFee: number;
-  maxMembers: number;
+  maxMembers: number | null;
   members: Member[];
   isPrivate: boolean;
   prizePool: number;
@@ -30,6 +39,7 @@ export interface FplSummary {
     overallPoints: number;
     overallRank: number;
     totalPlayers: number;
+    gameweekPoints: number;
 }
 
 export interface PlayerStat {
@@ -50,13 +60,13 @@ export interface Transaction {
   date: string;
   description: string;
   amount: number;
-  type: 'winnings' | 'deposit' | 'withdrawal' | 'entry_fee';
+  type: 'winnings' | 'deposit' | 'withdrawal' | 'entry_fee' | 'house_fee' | 'adjustment';
   status: 'Completed' | 'Pending' | 'Failed';
 }
 
 // Added for Admin User Management
-export type UserStatus = 'Active' | 'Banned';
-export type UserRole = 'Admin' | 'Moderator' | 'User';
+export type UserStatus = 'active' | 'suspended';
+export type UserRole = 'user' | 'admin' | 'super_admin';
 
 export interface AdminUser {
   id: string;
@@ -69,22 +79,21 @@ export interface AdminUser {
 }
 
 // Added for Admin League Management
-export type LeagueStatus = 'Open' | 'Ongoing' | 'Completed' | 'Payouts Approved';
+export type LeagueStatus = 'open' | 'ongoing' | 'completed';
 
 export interface AdminLeague {
-  id:string;
+  id: string;
+  code: string;
   name: string;
   creator: {
     id: string;
     name: string;
-  };
+  } | null;
   entryFee: number;
   participants: number;
-  maxParticipants: number;
+  maxParticipants: number | null;
   prizePool: number;
   status: LeagueStatus;
-  startDate: string;
-  endDate: string;
   members: Member[];
 }
 

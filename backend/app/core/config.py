@@ -34,17 +34,11 @@ class Settings(BaseSettings):
     BACKEND_URL: str
     MPESA_CALLBACK_URL_B2C: str
     MPESA_CALLBACK_URL_STK: str
-    PESAPAL_BASE_URL : str
-    PESAPAL_CONSUMER_KEY : str
-    PESAPAL_CONSUMER_SECRET : str
-    PESAPAL_CALLBACK_URL : str
-    PESAPAL_ACCOUNT_REFERENCE_PREFIX : str
-    PESAPAL_CURRENCY : str
-    PESAPAL_LIVE_URL : str
     FPL_EMAIL: str
     FPL_PWD: str
     FPL_LOGIN_URL: str
     FPL_TEAM_URL: str
+    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
     model_config = SettingsConfigDict(
         env_file=".env",

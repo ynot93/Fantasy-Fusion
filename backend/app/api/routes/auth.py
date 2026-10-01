@@ -1,49 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.db.auth import schemas, models
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core import security
+from app.core.rate_limit import fpl_login_rate_limiter
 from app.api.deps import get_db
-from app.db.auth import crud
 from app.api.deps_fpl import get_fpl_adapter
 from app.services.fpl_adapter import FPLAdapter
 
 router = APIRouter()
 
-# @router.post("/register", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
-# async def register(user: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
-#     existing_user = await crud.get_user_by_email(db, user.email)
-#     if existing_user:
-#         raise HTTPException(status_code=400, detail="Email already registered")
-#     if len(user.password) < 8:
-#         raise HTTPException(status_code=400, detail="Password too short")
-#     new_user = await crud.create_user(db, user)
-#     return new_user
-
-
-# @router.post("/login")
-# async def login(user: schemas.UserLogin, db: AsyncSession = Depends(get_db)):
-#     db_user = await crud.get_user_by_email(db, user.email)
-#     if not db_user or not security.verify_password(user.password, db_user.hashed_password):
-#         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-#     access_token = security.create_access_token(
-#         data={"sub": str(db_user.id), "role": db_user.role}
-#     )
-
-#     refresh_token = security.create_refresh_token(
-#         data={"sub": str(db_user.id), "role": db_user.role}
-#     )
-
-#     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
-
 @router.post("/fpl-login", response_model=schemas.Token) # Define Token schema as needed
 async def login_with_fpl(
+    request: Request,
     credentials: schemas.UserLogin, # email, password
     db: AsyncSession = Depends(get_db),
     adapter: FPLAdapter = Depends(get_fpl_adapter)
 ):
+    # Rate-limited: this endpoint relays the password straight to FPL's own
+    # login, so unbounded retries look like credential stuffing against FPL
+    # from our shared backend IP, not just against one user's account.
+    fpl_login_rate_limiter.check(request.client.host if request.client else "unknown")
+
     # 1. Verify Credentials with FPL (The "Authentication" Step)
     try:
         # This function returns { "manager_id": 123, "cookie": "..." }

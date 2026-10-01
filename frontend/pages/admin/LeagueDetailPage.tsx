@@ -11,11 +11,16 @@ const pageVariants = {
   out: { opacity: 0, y: -20 },
 };
 
+const statusLabels: Record<LeagueStatus, string> = {
+  open: 'Open',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+};
+
 const statusColors: Record<LeagueStatus, string> = {
-  Open: 'bg-green-500/20 text-green-300',
-  Ongoing: 'bg-blue-500/20 text-blue-300',
-  Completed: 'bg-slate-500/20 text-slate-400',
-  'Payouts Approved': 'bg-yellow-500/20 text-yellow-300',
+  open: 'bg-green-500/20 text-green-300',
+  ongoing: 'bg-blue-500/20 text-blue-300',
+  completed: 'bg-slate-500/20 text-slate-400',
 };
 
 const LeagueDetailPage: React.FC = () => {
@@ -23,6 +28,8 @@ const LeagueDetailPage: React.FC = () => {
     const navigate = useNavigate();
     const [league, setLeague] = useState<AdminLeague | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedWinnerId, setSelectedWinnerId] = useState('');
+    const [isPayingOut, setIsPayingOut] = useState(false);
 
     const fetchLeagueDetails = useCallback(async () => {
         if (!leagueId) return;
@@ -43,7 +50,7 @@ const LeagueDetailPage: React.FC = () => {
 
     const handleCloseLeague = async () => {
         if (!league || !window.confirm('Are you sure you want to close this league early? This will mark it as "Completed".')) return;
-        const result = await fantasyApi.updateLeagueStatus(league.id, 'Completed');
+        const result = await fantasyApi.updateLeagueStatus(league.id, 'completed');
         if (result.success) {
             alert('League closed successfully.');
             fetchLeagueDetails();
@@ -53,10 +60,10 @@ const LeagueDetailPage: React.FC = () => {
     };
 
     const handleRecalculatePoints = async () => {
-        if (!league || !window.confirm('Are you sure you want to recalculate points for all participants? This will assign random new scores.')) return;
+        if (!league || !window.confirm('Are you sure you want to recalculate points for all participants?')) return;
         const result = await fantasyApi.recalculateLeaguePoints(league.id);
         if (result.success) {
-            alert('Points recalculated successfully.');
+            alert('Recalculation triggered.');
             fetchLeagueDetails();
         } else {
             alert('Failed to recalculate points.');
@@ -64,13 +71,15 @@ const LeagueDetailPage: React.FC = () => {
     };
 
     const handleApprovePayouts = async () => {
-        if (!league || !window.confirm('Are you sure you want to approve payouts for this league?')) return;
-        const result = await fantasyApi.updateLeagueStatus(league.id, 'Payouts Approved');
+        if (!league || !selectedWinnerId) return;
+        const winner = league.members.find(m => m.id === selectedWinnerId);
+        if (!window.confirm(`Pay out the full prize pool to ${winner?.name ?? 'this member'}?`)) return;
+        setIsPayingOut(true);
+        const result = await fantasyApi.approveLeaguePayout(league.id, selectedWinnerId);
+        setIsPayingOut(false);
+        alert(result.message);
         if (result.success) {
-            alert('Payouts approved.');
             fetchLeagueDetails();
-        } else {
-            alert('Failed to approve payouts.');
         }
     };
 
@@ -84,15 +93,15 @@ const LeagueDetailPage: React.FC = () => {
             <div className="flex items-center gap-4 mb-8">
               <h1 className="text-4xl font-bold text-white truncate">{league.name}</h1>
               <span className={`px-3 py-1 rounded-full text-sm font-semibold ${statusColors[league.status]}`}>
-                  {league.status}
+                  {statusLabels[league.status]}
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <InfoCard icon={DollarSignIcon} title="Entry Fee" value={`Ksh ${league.entryFee}`} color="text-green-400" />
                 <InfoCard icon={TrophyIcon} title="Prize Pool" value={`Ksh ${league.prizePool.toLocaleString()}`} color="text-yellow-400" />
-                <InfoCard icon={UsersIcon} title="Creator" value={league.creator.name} color="text-brand-primary-accent" />
-                <InfoCard icon={UsersIcon} title="Participants" value={`${league.participants}/${league.maxParticipants}`} color="text-brand-secondary-accent" />
+                <InfoCard icon={UsersIcon} title="Creator" value={league.creator?.name ?? 'Unknown'} color="text-brand-primary-accent" />
+                <InfoCard icon={UsersIcon} title="Participants" value={`${league.participants}${league.maxParticipants !== null ? `/${league.maxParticipants}` : ''}`} color="text-brand-secondary-accent" />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -104,15 +113,31 @@ const LeagueDetailPage: React.FC = () => {
                     <div className="bg-brand-secondary/50 rounded-lg border border-brand-border p-6">
                         <h3 className="text-lg font-bold text-white mb-4">Admin Actions</h3>
                         <div className="space-y-3">
-                            <button onClick={handleCloseLeague} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={league.status === 'Completed' || league.status === 'Payouts Approved'}>
+                            <button onClick={handleCloseLeague} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={league.status === 'completed'}>
                                <StopCircleIcon className="w-5 h-5" /> Close League Early
                             </button>
                             <button onClick={handleRecalculatePoints} className="w-full flex items-center justify-center gap-2 bg-brand-secondary hover:bg-brand-dark transition-colors border border-brand-border text-white font-semibold py-2 px-4 rounded-lg">
                                <RefreshCwIcon className="w-5 h-5" /> Recalculate Points
                             </button>
-                            <button onClick={handleApprovePayouts} className="w-full flex items-center justify-center gap-2 bg-green-600/80 hover:bg-green-700 transition-colors border border-green-500 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled={league.status !== 'Completed'}>
-                               <CheckCircleIcon className="w-5 h-5" /> Approve Payouts
-                            </button>
+                            {league.status === 'completed' && (
+                                <div className="pt-2 border-t border-brand-border/50 space-y-2">
+                                    <label htmlFor="winnerSelect" className="block text-sm font-medium text-slate-300">Payout Winner</label>
+                                    <select
+                                        id="winnerSelect"
+                                        value={selectedWinnerId}
+                                        onChange={(e) => setSelectedWinnerId(e.target.value)}
+                                        className="block w-full bg-brand-dark border border-brand-border rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-brand-primary-accent focus:border-brand-primary-accent"
+                                    >
+                                        <option value="">Select a member…</option>
+                                        {league.members.map(m => (
+                                            <option key={m.id} value={m.id}>{m.name} ({m.points} pts)</option>
+                                        ))}
+                                    </select>
+                                    <button onClick={handleApprovePayouts} disabled={!selectedWinnerId || isPayingOut} className="w-full flex items-center justify-center gap-2 bg-green-600/80 hover:bg-green-700 transition-colors border border-green-500 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                                       <CheckCircleIcon className="w-5 h-5" /> {isPayingOut ? 'Processing…' : 'Pay Out Winner'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                      <div className="bg-brand-secondary/50 rounded-lg border border-brand-border p-6">

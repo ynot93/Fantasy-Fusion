@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { TrophyIcon, UserCircleIcon, MenuIcon, XIcon, ArrowRightIcon, LogOutIcon, BellIcon, SettingsIcon } from './Icons';
+import { useAuth } from '../context/AuthContext';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -9,10 +10,15 @@ const Header = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const profileMenuRef = useRef<HTMLDivElement>(null);
+  const { isAuthenticated, logout } = useAuth();
 
-  // A user is considered logged in on all pages that use this header, except the homepage.
-  const isLoggedIn = location.pathname !== '/';
+  const isLoggedIn = isAuthenticated;
   const isPublicView = !isLoggedIn;
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
 
   useEffect(() => {
     setIsMenuOpen(false);
@@ -85,11 +91,8 @@ const Header = () => {
               >
                 {isPublicView ? (
                   <div className="hidden md:flex items-center gap-2">
-                    <NavLink to="/login" className="px-4 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-brand-secondary hover:text-white transition-colors">
-                      Log In
-                    </NavLink>
-                    <NavLink to="/signup" className="flex items-center bg-brand-primary-accent text-white font-semibold py-2 px-4 rounded-md shadow-lg text-sm transition-transform transform hover:scale-105">
-                      Sign Up <ArrowRightIcon className="w-4 h-4 ml-1" />
+                    <NavLink to="/login" className="flex items-center bg-brand-primary-accent text-white font-semibold py-2 px-4 rounded-md shadow-lg text-sm transition-transform transform hover:scale-105">
+                      Log In <ArrowRightIcon className="w-4 h-4 ml-1" />
                     </NavLink>
                   </div>
                 ) : (
@@ -117,7 +120,7 @@ const Header = () => {
                                        </NavLink>
                                     </li>
                                      <li>
-                                       <button onClick={() => { navigate('/'); setIsProfileOpen(false); }} className="flex items-center w-full px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
+                                       <button onClick={() => { handleLogout(); setIsProfileOpen(false); }} className="flex items-center w-full px-4 py-2 text-sm text-slate-200 hover:bg-brand-dark/50">
                                           <LogOutIcon className="w-4 h-4 mr-3" />
                                           Logout
                                        </button>
@@ -178,14 +181,13 @@ const Header = () => {
                   <NavLink to="/my-leagues" className={mobileNavLinkClasses}>My Leagues</NavLink>
                   <NavLink to="/wallet" className={mobileNavLinkClasses}>Wallet</NavLink>
                   <NavLink to="/profile" className={mobileNavLinkClasses}>Settings</NavLink>
-                  <button onClick={() => { navigate('/'); setIsMenuOpen(false); }} className={mobileNavLinkClasses({ isActive: false })}>Logout</button>
+                  <button onClick={() => { handleLogout(); setIsMenuOpen(false); }} className={mobileNavLinkClasses({ isActive: false })}>Logout</button>
                  </>
               ) : (
                  <>
                    <NavLink to="/" className={mobileNavLinkClasses}>Home</NavLink>
                    <NavLink to="/leagues" className={mobileNavLinkClasses}>Leagues</NavLink>
                    <NavLink to="/login" className={mobileNavLinkClasses}>Log In</NavLink>
-                   <NavLink to="/signup" className={mobileNavLinkClasses}>Sign Up</NavLink>
                  </>
               )}
             </nav>

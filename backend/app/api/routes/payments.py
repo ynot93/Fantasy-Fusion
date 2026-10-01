@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
 from app.api.deps import get_db
 from app.api.deps import get_current_user
 from app.db.payments.service import PaymentsService
@@ -9,13 +10,11 @@ from app.db.payments.models import Provider
 router = APIRouter()
 
 def get_payments_service() -> PaymentsService:
-    from ...db.payments.providers import mpesa_provider as MpesaProvider
-    from ...db.payments.providers import pesapal_provider as PesapalProvider
-    from ...db.payments.providers import stripe_provider as StripeProvider
-    
+    from ...db.payments.providers.mpesa_provider import MpesaProvider
+    from ...db.payments.providers.stripe_provider import StripeProvider
+
     return PaymentsService({
         "MPESA": MpesaProvider(),
-        "PAYPAL": PesapalProvider(),
         "STRIPE": StripeProvider(),
     })
 
@@ -24,6 +23,16 @@ async def get_wallet(db: AsyncSession = Depends(get_db), user=Depends(get_curren
     from ...db.payments.crud import get_or_create_wallet
     wallet = await get_or_create_wallet(db, user.id)
     return wallet
+
+@router.get("/transactions", response_model=List[PaymentSchema.TransactionResponse])
+async def list_transactions(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    from ...db.payments.crud import list_transactions_for_user
+    return await list_transactions_for_user(db, user.id, limit=limit, offset=offset)
 
 @router.post("/wallet/deposit", response_model=PaymentSchema.DepositInitResponse, status_code=201)
 async def deposit(

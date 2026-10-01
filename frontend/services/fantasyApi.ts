@@ -1,16 +1,170 @@
 
-import { League, Member, UserProfile, PlayerStat, Transaction, AdminUser, UserStatus, UserRole, AdminLeague, LeagueStatus, AdminTransaction, FraudAlert, HomepageContent, Announcement, HelpArticle, AnalyticsData, SystemSettingsData, Backup, FplSummary } from '../types';
+import { League, Member, UserProfile, PlayerStat, Transaction, AdminUser, UserStatus, UserRole, AdminLeague, LeagueStatus, AdminTransaction, FraudAlert, HomepageContent, Announcement, HelpArticle, AnalyticsData, SystemSettingsData, Backup, FplSummary, AuthUser } from '../types';
+import { apiFetch, ApiError } from './http';
+import { centsToKsh, kshToCents } from './money';
 
-let mockLeagues: League[] = [
-  { id: 'l1', name: 'Ksh 100 Pro League #1', entryFee: 100, maxMembers: 20, members: Array.from({ length: 20 }, (_, i) => ({ id: `u${i}`, name: `Player ${i + 1}`, teamName: `Team ${i+1}`, points: Math.floor(Math.random() * 80) })), isPrivate: false, prizePool: 1800 },
-  { id: 'l2', name: 'Ksh 100 Pro League #2', entryFee: 100, maxMembers: 20, members: Array.from({ length: 15 }, (_, i) => ({ id: `u${i+20}`, name: `Player ${i + 21}`, teamName: `Team ${i+21}`, points: Math.floor(Math.random() * 80) })), isPrivate: false, prizePool: 1350 },
-  { id: 'l3', name: 'Ksh 200 Elite Challenge', entryFee: 200, maxMembers: 20, members: Array.from({ length: 18 }, (_, i) => ({ id: `u${i+40}`, name: `User ${i + 41}`, teamName: `FC ${i+41}`, points: Math.floor(Math.random() * 80) })), isPrivate: false, prizePool: 3240 },
-  { id: 'l4', name: 'Ksh 500 High Rollers', entryFee: 500, maxMembers: 20, members: Array.from({ length: 7 }, (_, i) => ({ id: `u${i+60}`, name: `Manager ${i + 61}`, teamName: `Winners ${i+61}`, points: Math.floor(Math.random() * 80) })), isPrivate: false, prizePool: 3150 },
-  { id: 'l5', name: 'Ksh 1000 Legends Arena', entryFee: 1000, maxMembers: 20, members: Array.from({ length: 19 }, (_, i) => ({ id: `u${i+80}`, name: `Legend ${i + 81}`, teamName: `Legends ${i+81}`, points: Math.floor(Math.random() * 80) })), isPrivate: false, prizePool: 17100 },
-  { id: 'l6', name: 'Weekend Warriors (Private)', entryFee: 200, maxMembers: 10, members: Array.from({ length: 4 }, (_, i) => ({ id: `u${i+100}`, name: `Friend ${i + 1}`, teamName: `Buddies ${i+1}`, points: Math.floor(Math.random() * 80) })), isPrivate: true, prizePool: 720 },
-];
+interface BackendUserResponse {
+  id: number;
+  email: string;
+  fpl_manager_id: number;
+  role: string;
+}
 
-let myJoinedLeaguesIds = new Set<string>(['l4', 'l6']);
+interface BackendTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  user: BackendUserResponse;
+}
+
+const toAuthUser = (u: BackendUserResponse): AuthUser => ({
+  id: String(u.id),
+  email: u.email,
+  fplManagerId: u.fpl_manager_id,
+  role: u.role as AuthUser['role'],
+});
+
+interface BackendLeagueMember {
+  id: number;
+  email: string;
+  fpl_manager_id: number;
+  role: string;
+  name?: string | null;
+  team_name?: string | null;
+  points?: number | null;
+}
+
+interface BackendLeague {
+  id: number;
+  code: string;
+  name: string;
+  created_by_id: number;
+  is_private: boolean;
+  max_members: number | null;
+  entry_fee_cents: number;
+  prize_pool_cents: number;
+  members: BackendLeagueMember[];
+}
+
+const toMember = (m: BackendLeagueMember): Member => ({
+  id: String(m.id),
+  name: m.name ?? m.email,
+  teamName: m.team_name ?? '—',
+  points: m.points ?? 0,
+});
+
+interface BackendTransaction {
+  id: number;
+  league_id: number | null;
+  type: 'DEPOSIT' | 'WITHDRAW' | 'LEAGUE_CONTRIBUTION' | 'PAYOUT' | 'HOUSE_FEE' | 'ADJUSTMENT';
+  provider: string | null;
+  amount_cents: number;
+  currency: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  created_at: string;
+}
+
+const TX_TYPE_MAP: Record<BackendTransaction['type'], Transaction['type']> = {
+  DEPOSIT: 'deposit',
+  WITHDRAW: 'withdrawal',
+  LEAGUE_CONTRIBUTION: 'entry_fee',
+  PAYOUT: 'winnings',
+  HOUSE_FEE: 'house_fee',
+  ADJUSTMENT: 'adjustment',
+};
+
+const TX_STATUS_MAP: Record<BackendTransaction['status'], Transaction['status']> = {
+  PENDING: 'Pending',
+  SUCCEEDED: 'Completed',
+  FAILED: 'Failed',
+};
+
+const TX_DESCRIPTIONS: Record<BackendTransaction['type'], string> = {
+  DEPOSIT: 'Deposit',
+  WITHDRAW: 'Withdrawal',
+  LEAGUE_CONTRIBUTION: 'League Entry',
+  PAYOUT: 'Winnings',
+  HOUSE_FEE: 'Service Fee',
+  ADJUSTMENT: 'Balance Adjustment',
+};
+
+const toTransaction = (t: BackendTransaction): Transaction => {
+  // amount_cents is a positive magnitude for every type except ADJUSTMENT,
+  // which already carries its own sign (see admin balance-adjustment endpoint).
+  const isDebit = t.type === 'WITHDRAW' || t.type === 'LEAGUE_CONTRIBUTION' || t.type === 'HOUSE_FEE';
+  const signedCents = t.type === 'ADJUSTMENT' ? t.amount_cents : (isDebit ? -t.amount_cents : t.amount_cents);
+  return {
+    id: String(t.id),
+    date: t.created_at,
+    description: `${TX_DESCRIPTIONS[t.type]}${t.provider ? ` via ${t.provider}` : ''}`,
+    amount: centsToKsh(signedCents),
+    type: TX_TYPE_MAP[t.type],
+    status: TX_STATUS_MAP[t.status],
+  };
+};
+
+interface BackendAdminUser {
+  id: number;
+  username: string;
+  email: string;
+  role: UserRole;
+  status: UserStatus;
+  is_locked: boolean;
+  created_at: string;
+}
+
+const avatarFor = (seed: string): string =>
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(seed)}&background=1e293b&color=fff`;
+
+interface BackendAdminLeague {
+  id: number;
+  code: string;
+  created_by_id: number;
+  is_private: boolean;
+  max_members: number | null;
+  name: string;
+  status: LeagueStatus;
+  entry_fee_cents: number;
+  prize_pool_cents: number;
+  participant_count: number;
+  official: boolean;
+  creator: { id: number; username: string } | null;
+  members?: BackendLeagueMember[];
+}
+
+const toAdminLeague = (l: BackendAdminLeague): AdminLeague => ({
+  id: String(l.id),
+  code: l.code,
+  name: l.name,
+  creator: l.creator ? { id: String(l.creator.id), name: l.creator.username } : null,
+  entryFee: centsToKsh(l.entry_fee_cents),
+  participants: l.participant_count,
+  maxParticipants: l.max_members,
+  prizePool: centsToKsh(l.prize_pool_cents),
+  status: l.status,
+  members: (l.members ?? []).map(toMember).sort((a, b) => b.points - a.points),
+});
+
+const toAdminUser = (u: BackendAdminUser): AdminUser => ({
+  id: String(u.id),
+  name: u.username,
+  email: u.email,
+  avatarUrl: avatarFor(u.username),
+  role: u.role,
+  status: u.status,
+  joinedDate: u.created_at,
+});
+
+const toLeague = (l: BackendLeague): League => ({
+  id: String(l.id),
+  code: l.code,
+  name: l.name,
+  entryFee: centsToKsh(l.entry_fee_cents),
+  maxMembers: l.max_members,
+  members: l.members.map(toMember).sort((a, b) => b.points - a.points),
+  isPrivate: l.is_private,
+  prizePool: centsToKsh(l.prize_pool_cents),
+});
 
 const currentUser: UserProfile = {
     id: 'user_current',
@@ -21,11 +175,6 @@ const currentUser: UserProfile = {
     teamName: 'Mercer FC',
 };
 
-const mockFplSummary: FplSummary = {
-    overallPoints: 1850,
-    overallRank: 123456,
-    totalPlayers: 11000000,
-};
 
 const mockPlayerStats: PlayerStat[] = [
     { id: 'p1', name: 'Erling Haaland', team: 'Man City', position: 'FWD', price: 14.2, goals: 27, assists: 7, cleanSheets: 10, selectionPercent: 58.1 },
@@ -40,11 +189,7 @@ const mockPlayerStats: PlayerStat[] = [
     { id: 'p10', name: 'Mohamed Salah', team: 'Liverpool', position: 'MID', price: 13.3, goals: 18, assists: 10, cleanSheets: 8, selectionPercent: 25.4 },
 ];
 
-const mockWallet = {
-    currentBalance: 1200.00,
-    pendingWinnings: 450.00,
-};
-
+// Retained only for the still-mocked admin dashboard stat (Phase 6a will replace it).
 const mockTransactions: Transaction[] = [
     { id: 't1', date: new Date('2024-08-26T10:00:00Z').toISOString(), description: 'Gameweek 2 Winnings', amount: 1800, type: 'winnings', status: 'Completed' },
     { id: 't2', date: new Date('2024-08-25T15:30:00Z').toISOString(), description: 'Withdrawal to M-Pesa', amount: -2000, type: 'withdrawal', status: 'Completed' },
@@ -54,27 +199,20 @@ const mockTransactions: Transaction[] = [
     { id: 't6', date: new Date('2024-08-17T18:00:00Z').toISOString(), description: 'League Entry: Weekend Warriors', amount: -200, type: 'entry_fee', status: 'Completed' },
 ];
 
-let mockAdminUsers: AdminUser[] = [
-    { id: 'au1', name: 'Admin User', email: 'admin@fplnexus.com', avatarUrl: 'https://picsum.photos/seed/admin/100/100', role: 'Admin', status: 'Active', joinedDate: '2023-01-15T10:00:00Z' },
-    { id: currentUser.id, name: currentUser.name, email: currentUser.email, avatarUrl: currentUser.avatarUrl, role: 'User', status: 'Active', joinedDate: '2023-05-20T14:30:00Z' },
-    { id: 'au2', name: 'Jane Doe', email: 'jane.doe@email.com', avatarUrl: 'https://picsum.photos/seed/jane/100/100', role: 'Moderator', status: 'Active', joinedDate: '2023-06-01T11:00:00Z' },
-    { id: 'au3', name: 'John Smith', email: 'john.smith@email.com', avatarUrl: 'https://picsum.photos/seed/john/100/100', role: 'User', status: 'Banned', joinedDate: '2023-07-10T09:00:00Z' },
-    { id: 'au4', name: 'Emily White', email: 'emily.white@email.com', avatarUrl: 'https://picsum.photos/seed/emily/100/100', role: 'User', status: 'Active', joinedDate: '2023-08-22T18:45:00Z' },
-    { id: 'au5', name: 'Michael Brown', email: 'michael.brown@email.com', avatarUrl: 'https://picsum.photos/seed/michael/100/100', role: 'User', status: 'Active', joinedDate: '2023-09-05T12:00:00Z' },
-    { id: 'au6', name: 'Sarah Green', email: 'sarah.green@email.com', avatarUrl: 'https://picsum.photos/seed/sarah/100/100', role: 'Moderator', status: 'Active', joinedDate: '2023-10-11T16:20:00Z' },
-    { id: 'au7', name: 'David Black', email: 'david.black@email.com', avatarUrl: 'https://picsum.photos/seed/david/100/100', role: 'User', status: 'Banned', joinedDate: '2023-11-30T20:00:00Z' },
-    { id: 'au8', name: 'Laura Grey', email: 'laura.grey@email.com', avatarUrl: 'https://picsum.photos/seed/laura/100/100', role: 'User', status: 'Active', joinedDate: '2024-01-02T13:10:00Z' },
-    { id: 'au9', name: 'Chris Blue', email: 'chris.blue@email.com', avatarUrl: 'https://picsum.photos/seed/chris/100/100', role: 'User', status: 'Active', joinedDate: '2024-02-14T11:55:00Z' },
-    { id: 'au10', name: 'Patricia Yellow', email: 'patricia.yellow@email.com', avatarUrl: 'https://picsum.photos/seed/patricia/100/100', role: 'User', status: 'Active', joinedDate: '2024-03-19T08:30:00Z' },
-];
-
-let mockAdminLeagues: AdminLeague[] = [
-  { id: 'l1', name: 'Ksh 100 Pro League #1', creator: { id: 'au5', name: 'Michael Brown' }, entryFee: 100, participants: 20, maxParticipants: 20, prizePool: 1800, status: 'Completed', startDate: '2024-08-10T12:00:00Z', endDate: '2024-08-12T12:00:00Z', members: Array.from({ length: 20 }, (_, i) => ({ id: `u${i}`, name: `Player ${i + 1}`, teamName: `Team ${i+1}`, points: Math.floor(Math.random() * 80) })) },
-  { id: 'l2', name: 'Ksh 100 Pro League #2', creator: { id: 'au2', name: 'Jane Doe' }, entryFee: 100, participants: 15, maxParticipants: 20, prizePool: 1350, status: 'Ongoing', startDate: '2024-08-17T12:00:00Z', endDate: '2024-08-19T12:00:00Z', members: Array.from({ length: 15 }, (_, i) => ({ id: `u${i+20}`, name: `Player ${i + 21}`, teamName: `Team ${i+21}`, points: Math.floor(Math.random() * 80) })) },
-  { id: 'l3', name: 'Ksh 200 Elite Challenge', creator: { id: 'au6', name: 'Sarah Green' }, entryFee: 200, participants: 18, maxParticipants: 20, prizePool: 3240, status: 'Ongoing', startDate: '2024-08-17T12:00:00Z', endDate: '2024-08-19T12:00:00Z', members: Array.from({ length: 18 }, (_, i) => ({ id: `u${i+40}`, name: `User ${i + 41}`, teamName: `FC ${i+41}`, points: Math.floor(Math.random() * 80) })) },
-  { id: 'l4', name: 'Ksh 500 High Rollers', creator: { id: 'au9', name: 'Chris Blue' }, entryFee: 500, participants: 7, maxParticipants: 20, prizePool: 3150, status: 'Open', startDate: '2024-08-24T12:00:00Z', endDate: '2024-08-26T12:00:00Z', members: Array.from({ length: 7 }, (_, i) => ({ id: `u${i+60}`, name: `Manager ${i + 61}`, teamName: `Winners ${i+61}`, points: Math.floor(Math.random() * 80) })) },
-  { id: 'l5', name: 'Ksh 1000 Legends Arena', creator: { id: 'au1', name: 'Admin User' }, entryFee: 1000, participants: 19, maxParticipants: 20, prizePool: 17100, status: 'Payouts Approved', startDate: '2024-08-03T12:00:00Z', endDate: '2024-08-05T12:00:00Z', members: Array.from({ length: 19 }, (_, i) => ({ id: `u${i+80}`, name: `Legend ${i + 81}`, teamName: `Legends ${i+81}`, points: Math.floor(Math.random() * 80) })) },
-  { id: 'l6', name: 'Weekend Warriors (Private)', creator: { id: currentUser.id, name: currentUser.name }, entryFee: 200, participants: 4, maxParticipants: 10, prizePool: 720, status: 'Completed', startDate: '2024-08-10T12:00:00Z', endDate: '2024-08-12T12:00:00Z', members: Array.from({ length: 4 }, (_, i) => ({ id: `u${i+100}`, name: `Friend ${i + 1}`, teamName: `Buddies ${i+1}`, points: Math.floor(Math.random() * 80) })) },
+// Retained only to populate the still-mocked admin transactions list (Phase 6b
+// will replace it with real transactions joined to real users).
+const mockAdminUsers: { id: string; name: string; avatarUrl: string }[] = [
+    { id: 'au1', name: 'Admin User', avatarUrl: 'https://picsum.photos/seed/admin/100/100' },
+    { id: currentUser.id, name: currentUser.name, avatarUrl: currentUser.avatarUrl },
+    { id: 'au2', name: 'Jane Doe', avatarUrl: 'https://picsum.photos/seed/jane/100/100' },
+    { id: 'au3', name: 'John Smith', avatarUrl: 'https://picsum.photos/seed/john/100/100' },
+    { id: 'au4', name: 'Emily White', avatarUrl: 'https://picsum.photos/seed/emily/100/100' },
+    { id: 'au5', name: 'Michael Brown', avatarUrl: 'https://picsum.photos/seed/michael/100/100' },
+    { id: 'au6', name: 'Sarah Green', avatarUrl: 'https://picsum.photos/seed/sarah/100/100' },
+    { id: 'au7', name: 'David Black', avatarUrl: 'https://picsum.photos/seed/david/100/100' },
+    { id: 'au8', name: 'Laura Grey', avatarUrl: 'https://picsum.photos/seed/laura/100/100' },
+    { id: 'au9', name: 'Chris Blue', avatarUrl: 'https://picsum.photos/seed/chris/100/100' },
+    { id: 'au10', name: 'Patricia Yellow', avatarUrl: 'https://picsum.photos/seed/patricia/100/100' },
 ];
 
 const mockAdminTransactions: AdminTransaction[] = [
@@ -171,59 +309,99 @@ let mockSystemSettings: SystemSettingsData = {
 const simulateDelay = <T,>(data: T): Promise<T> =>
   new Promise(resolve => setTimeout(() => resolve(JSON.parse(JSON.stringify(data))), 500 + Math.random() * 800));
 
+const joinByCode = async (code: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    const joined = await apiFetch<BackendLeague>('/leagues/join', {
+      method: 'POST',
+      body: { code },
+    });
+    return { success: true, message: `Successfully joined ${joined.name}!` };
+  } catch (err) {
+    const message = err instanceof ApiError && typeof err.detail === 'string' ? err.detail : 'Could not join league.';
+    return { success: false, message };
+  }
+};
+
 export const fantasyApi = {
-  getPublicLeagues: (): Promise<League[]> => {
-    return simulateDelay(mockLeagues.filter(l => !l.isPrivate));
-  },
-
-  getMyLeagues: (): Promise<League[]> => {
-    const myLeagues = mockLeagues.filter(l => myJoinedLeaguesIds.has(l.id));
-    return simulateDelay(myLeagues);
-  },
-  
-  getLeagueDetails: (leagueId: string): Promise<League | undefined> => {
-     const league = mockLeagues.find(l => l.id === leagueId);
-     if (league) {
-        league.members.sort((a, b) => b.points - a.points);
-     }
-     return simulateDelay(league);
-  },
-
-  joinLeague: (leagueId: string): Promise<{ success: boolean; message: string }> => {
-    const league = mockLeagues.find(l => l.id === leagueId);
-    if (!league) return simulateDelay({ success: false, message: 'League not found.' });
-    if (league.members.length >= league.maxMembers) return simulateDelay({ success: false, message: 'League is full.' });
-    if (myJoinedLeaguesIds.has(leagueId)) return simulateDelay({ success: false, message: 'Already in this league.' });
-    
-    myJoinedLeaguesIds.add(leagueId);
-    const newMember: Member = { id: currentUser.id, name: currentUser.name, teamName: 'My Awesome Team', points: Math.floor(Math.random() * 80), isCurrentUser: true };
-    league.members.push(newMember);
-    league.prizePool = league.entryFee * league.members.length * 0.9;
-    
-    return simulateDelay({ success: true, message: `Successfully joined ${league.name}!` });
-  },
-
-  createLeague: (name: string, entryFee: number, isPrivate: boolean, maxMembers: number): Promise<{ success: true, newLeague: League } | { success: false, message: string }> => {
-    const newLeague: League = {
-      id: `l${Date.now()}`,
-      name,
-      entryFee,
-      isPrivate,
-      maxMembers,
-      members: [{ id: currentUser.id, name: currentUser.name, teamName: 'My Awesome Team', points: 0, isCurrentUser: true }],
-      prizePool: entryFee * 0.9
+  login: async (email: string, password: string): Promise<{ accessToken: string; refreshToken: string; user: AuthUser }> => {
+    const res = await apiFetch<BackendTokenResponse>('/auth/fpl-login', {
+      method: 'POST',
+      body: { email, password },
+      auth: false,
+    });
+    return {
+      accessToken: res.access_token,
+      refreshToken: res.refresh_token,
+      user: toAuthUser(res.user),
     };
-    mockLeagues.push(newLeague);
-    myJoinedLeaguesIds.add(newLeague.id);
-    return simulateDelay({ success: true, newLeague });
+  },
+
+  getPublicLeagues: async (): Promise<League[]> => {
+    const leagues = await apiFetch<BackendLeague[]>('/leagues/?is_private=false');
+    return leagues.map(toLeague);
+  },
+
+  getMyLeagues: async (): Promise<League[]> => {
+    const leagues = await apiFetch<BackendLeague[]>('/leagues/mine');
+    return leagues.map(toLeague);
+  },
+
+  getLeagueDetails: async (leagueId: string): Promise<League | undefined> => {
+    try {
+      const league = await apiFetch<BackendLeague>(`/leagues/${leagueId}`);
+      return toLeague(league);
+    } catch {
+      return undefined;
+    }
+  },
+
+  joinLeague: async (leagueId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const league = await apiFetch<BackendLeague>(`/leagues/${leagueId}`);
+      return await joinByCode(league.code);
+    } catch (err) {
+      const message = err instanceof ApiError && typeof err.detail === 'string' ? err.detail : 'Could not join league.';
+      return { success: false, message };
+    }
+  },
+
+  joinLeagueByCode: (code: string): Promise<{ success: boolean; message: string }> => {
+    return joinByCode(code);
+  },
+
+  createLeague: async (name: string, entryFee: number, isPrivate: boolean, maxMembers: number): Promise<{ success: true, newLeague: League } | { success: false, message: string }> => {
+    try {
+      const league = await apiFetch<BackendLeague>('/leagues/', {
+        method: 'POST',
+        body: {
+          name,
+          is_private: isPrivate,
+          max_members: maxMembers,
+          entry_fee_cents: kshToCents(entryFee),
+        },
+      });
+      return { success: true, newLeague: toLeague(league) };
+    } catch (err) {
+      const message = err instanceof ApiError && typeof err.detail === 'string' ? err.detail : 'Could not create league.';
+      return { success: false, message };
+    }
   },
   
   getUserProfile: (): Promise<UserProfile> => {
       return simulateDelay(currentUser);
   },
   
-  getFplSummary: (): Promise<FplSummary> => {
-      return simulateDelay(mockFplSummary);
+  getFplSummary: async (fplManagerId: number): Promise<FplSummary> => {
+      const [entry, bootstrap] = await Promise.all([
+        apiFetch<{ summary_overall_points: number; summary_overall_rank: number; summary_event_points: number }>(`/fpl/entry/${fplManagerId}`),
+        apiFetch<{ total_players: number }>('/fpl/bootstrap'),
+      ]);
+      return {
+        overallPoints: entry.summary_overall_points,
+        overallRank: entry.summary_overall_rank,
+        gameweekPoints: entry.summary_event_points,
+        totalPlayers: bootstrap.total_players,
+      };
   },
 
   updateUserProfile: (data: Partial<UserProfile>): Promise<UserProfile> => {
@@ -235,78 +413,147 @@ export const fantasyApi = {
       return simulateDelay(mockPlayerStats);
   },
 
-  getWalletDetails: (): Promise<{ currentBalance: number; pendingWinnings: number; }> => {
-      return simulateDelay(mockWallet);
+  getWalletDetails: async (): Promise<{ currentBalance: number; pendingWinnings: number; }> => {
+      const [wallet, transactions] = await Promise.all([
+        apiFetch<{ user_id: number; balance_cents: number }>('/payments/wallet'),
+        apiFetch<BackendTransaction[]>('/payments/transactions'),
+      ]);
+      const pendingWinningsCents = transactions
+        .filter(t => t.type === 'PAYOUT' && t.status === 'PENDING')
+        .reduce((sum, t) => sum + t.amount_cents, 0);
+      return {
+        currentBalance: centsToKsh(wallet.balance_cents),
+        pendingWinnings: centsToKsh(pendingWinningsCents),
+      };
   },
 
-  getTransactions: (): Promise<Transaction[]> => {
-      return simulateDelay(mockTransactions);
+  getTransactions: async (): Promise<Transaction[]> => {
+      const transactions = await apiFetch<BackendTransaction[]>('/payments/transactions');
+      return transactions.map(toTransaction);
+  },
+
+  deposit: async (amountKsh: number, provider: 'MPESA' = 'MPESA'): Promise<{ success: boolean; message: string }> => {
+    try {
+      await apiFetch('/payments/wallet/deposit', {
+        method: 'POST',
+        body: {
+          amount_cents: kshToCents(amountKsh),
+          currency: 'KES',
+          provider,
+          idempotency_key: crypto.randomUUID(),
+        },
+      });
+      return { success: true, message: 'Deposit initiated — check your phone to complete it.' };
+    } catch (err) {
+      const message = err instanceof ApiError && typeof err.detail === 'string' ? err.detail : 'Could not start deposit.';
+      return { success: false, message };
+    }
+  },
+
+  withdraw: async (amountKsh: number, destination: string, provider: 'MPESA' = 'MPESA'): Promise<{ success: boolean; message: string }> => {
+    try {
+      await apiFetch('/payments/wallet/withdraw', {
+        method: 'POST',
+        body: {
+          amount_cents: kshToCents(amountKsh),
+          destination,
+          provider,
+          idempotency_key: crypto.randomUUID(),
+        },
+      });
+      return { success: true, message: 'Withdrawal requested.' };
+    } catch (err) {
+      const message = err instanceof ApiError && typeof err.detail === 'string' ? err.detail : 'Could not start withdrawal.';
+      return { success: false, message };
+    }
   },
 
   getAdminDashboardStats: (): Promise<{ totalUsers: number; activeLeagues: number; totalRevenue: number; totalTransfers: number; }> => {
+    // TODO(Phase 6a): back this with GET /admin/dashboard/stats once it exists.
     const stats = {
-        totalUsers: 104, // Sum of all unique members
-        activeLeagues: mockLeagues.length,
-        totalRevenue: mockLeagues.reduce((acc, l) => acc + (l.prizePool / 0.9), 0),
+        totalUsers: 104,
+        activeLeagues: 6,
+        totalRevenue: 26640,
         totalTransfers: mockTransactions.length,
     };
     return simulateDelay(stats);
   },
 
   // Admin User Management APIs
-  getUsers: (): Promise<AdminUser[]> => {
-    return simulateDelay(mockAdminUsers);
+  getUsers: async (): Promise<AdminUser[]> => {
+    const users = await apiFetch<BackendAdminUser[]>('/admin/users');
+    return users.map(toAdminUser);
   },
 
-  updateUserStatus: (userId: string, status: UserStatus): Promise<{ success: boolean }> => {
-    const user = mockAdminUsers.find(u => u.id === userId);
-    if (user) {
-      user.status = status;
-      return simulateDelay({ success: true });
+  updateUserStatus: async (userId: string, status: UserStatus): Promise<{ success: boolean }> => {
+    try {
+      await apiFetch(`/admin/users/${userId}/suspend?suspend=${status === 'suspended'}`, { method: 'PATCH' });
+      return { success: true };
+    } catch {
+      return { success: false };
     }
-    return simulateDelay({ success: false });
   },
 
-  updateUserRole: (userId: string, role: UserRole): Promise<{ success: boolean }> => {
-    const user = mockAdminUsers.find(u => u.id === userId);
-    if (user) {
-      user.role = role;
-      return simulateDelay({ success: true });
+  updateUserRole: async (userId: string, role: UserRole): Promise<{ success: boolean }> => {
+    try {
+      await apiFetch(`/admin/users/${userId}/role`, { method: 'PATCH', body: { role } });
+      return { success: true };
+    } catch {
+      return { success: false };
     }
-    return simulateDelay({ success: false });
   },
 
   // Admin League Management
-  getAdminLeagues: (): Promise<AdminLeague[]> => {
-    return simulateDelay(mockAdminLeagues);
+  getAdminLeagues: async (): Promise<AdminLeague[]> => {
+    const leagues = await apiFetch<BackendAdminLeague[]>('/admin/leagues');
+    return leagues.map(toAdminLeague);
   },
 
-  getAdminLeagueDetails: (leagueId: string): Promise<AdminLeague | undefined> => {
-    const league = mockAdminLeagues.find(l => l.id === leagueId);
-    if (league) {
-        league.members.sort((a, b) => b.points - a.points);
+  getAdminLeagueDetails: async (leagueId: string): Promise<AdminLeague | undefined> => {
+    try {
+      const league = await apiFetch<BackendAdminLeague>(`/admin/leagues/${leagueId}`);
+      return toAdminLeague(league);
+    } catch {
+      return undefined;
     }
-    return simulateDelay(league);
   },
 
-  updateLeagueStatus: (leagueId: string, status: LeagueStatus): Promise<{ success: boolean }> => {
-    const league = mockAdminLeagues.find(l => l.id === leagueId);
-    if (league) {
-        league.status = status;
-        return simulateDelay({ success: true });
+  updateLeagueStatus: async (leagueId: string, status: LeagueStatus): Promise<{ success: boolean }> => {
+    try {
+      if (status === 'completed') {
+        await apiFetch(`/admin/leagues/${leagueId}/close`, { method: 'POST' });
+      } else {
+        await apiFetch(`/admin/leagues/${leagueId}`, { method: 'PATCH', body: { status } });
+      }
+      return { success: true };
+    } catch {
+      return { success: false };
     }
-    return simulateDelay({ success: false });
   },
 
-  recalculateLeaguePoints: (leagueId: string): Promise<{ success: boolean }> => {
-    const league = mockAdminLeagues.find(l => l.id === leagueId);
-    if (league) {
-        league.members.forEach(member => {
-            member.points = Math.floor(Math.random() * 100);
-        });
-        return simulateDelay({ success: true });
+  approveLeaguePayout: async (leagueId: string, winnerUserId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const result = await apiFetch<{ amount_cents: number }>(`/admin/leagues/${leagueId}/payouts`, {
+        method: 'POST',
+        body: { winner_user_id: Number(winnerUserId) },
+      });
+      return { success: true, message: `Paid out Ksh ${centsToKsh(result.amount_cents).toLocaleString()}.` };
+    } catch (err) {
+      const message = err instanceof ApiError && typeof err.detail === 'string' ? err.detail : 'Could not process payout.';
+      return { success: false, message };
     }
-    return simulateDelay({ success: false });
+  },
+
+  recalculateLeaguePoints: async (leagueId: string): Promise<{ success: boolean }> => {
+    // Backend stub today (app/api/routes/admin/leagues.py::recalc) — no real
+    // per-gameweek computation exists yet. Wired so the action is honest
+    // about hitting the real endpoint rather than faking success locally.
+    try {
+      await apiFetch(`/admin/leagues/${leagueId}/recalculate`, { method: 'POST' });
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
   },
 
   // Admin Finance APIs

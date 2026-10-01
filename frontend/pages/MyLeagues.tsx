@@ -6,6 +6,7 @@ import { League, Member } from '../types';
 import { fantasyApi } from '../services/fantasyApi';
 import { TrophyIcon, UsersIcon, PlusIcon } from '../components/Icons';
 import Modal from '../components/Modal';
+import { useAuth } from '../context/AuthContext';
 
 const pageVariants = {
   initial: { opacity: 0, y: 20 },
@@ -14,6 +15,7 @@ const pageVariants = {
 };
 
 const Leaderboard: React.FC<{ members: Member[] }> = ({ members }) => {
+  const { user } = useAuth();
   return (
     <div className="mt-6 flow-root">
       <div className="-my-2 overflow-x-auto">
@@ -30,22 +32,25 @@ const Leaderboard: React.FC<{ members: Member[] }> = ({ members }) => {
               </thead>
               <tbody className="divide-y divide-brand-border bg-brand-dark/50">
                 <AnimatePresence>
-                  {members.map((member, index) => (
-                    <motion.tr
-                      key={member.id}
-                      layout
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.3, delay: index * 0.05 }}
-                      className={member.isCurrentUser ? 'bg-indigo-900/50' : ''}
-                    >
-                      <td className="whitespace-nowrap px-3 py-4 text-sm font-medium text-white">{index + 1}</td>
-                      <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{member.name} {member.isCurrentUser && '(You)'}</td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-300">{member.teamName}</td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-300 text-right font-bold">{member.points}</td>
-                    </motion.tr>
-                  ))}
+                  {members.map((member, index) => {
+                    const isCurrentUser = !!user && member.id === user.id;
+                    return (
+                      <motion.tr
+                        key={member.id}
+                        layout
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.3, delay: index * 0.05 }}
+                        className={isCurrentUser ? 'bg-indigo-900/50' : ''}
+                      >
+                        <td className="whitespace-nowrap px-3 py-4 text-sm font-medium text-white">{index + 1}</td>
+                        <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{member.name} {isCurrentUser && '(You)'}</td>
+                        <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-300">{member.teamName}</td>
+                        <td className="whitespace-nowrap px-3 py-4 text-sm text-slate-300 text-right font-bold">{member.points}</td>
+                      </motion.tr>
+                    );
+                  })}
                 </AnimatePresence>
               </tbody>
             </table>
@@ -182,7 +187,7 @@ const MyLeagues: React.FC = () => {
                         <TrophyIcon className="w-5 h-5 mr-2 text-yellow-400" /> Prize: Ksh {selectedLeague.prizePool.toLocaleString()}
                      </div>
                      <div className="flex items-center">
-                        <UsersIcon className="w-5 h-5 mr-2 text-brand-primary-accent" /> {selectedLeague.members.length} / {selectedLeague.maxMembers} Members
+                        <UsersIcon className="w-5 h-5 mr-2 text-brand-primary-accent" /> {selectedLeague.members.length}{selectedLeague.maxMembers !== null ? ` / ${selectedLeague.maxMembers}` : ''} Members
                      </div>
                   </div>
                   {selectedLeague.members && <Leaderboard members={selectedLeague.members} />}
