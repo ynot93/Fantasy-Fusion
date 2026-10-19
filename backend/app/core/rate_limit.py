@@ -24,7 +24,7 @@ class FixedWindowRateLimiter:
         if len(hits) >= self.max_attempts:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many login attempts. Please try again later.",
+                detail="Too many attempts. Please try again later.",
             )
         hits.append(now)
         self._hits[key] = hits
@@ -33,4 +33,8 @@ class FixedWindowRateLimiter:
         self._hits.clear()
 
 
-fpl_login_rate_limiter = FixedWindowRateLimiter(max_attempts=5, window_seconds=15 * 60)
+login_rate_limiter = FixedWindowRateLimiter(max_attempts=5, window_seconds=15 * 60)
+# Keyed per IP: each request can send an email.
+password_reset_rate_limiter = FixedWindowRateLimiter(max_attempts=5, window_seconds=15 * 60)
+# Keyed per user: each verify attempt is a live (uncached) call to FPL.
+fpl_verify_rate_limiter = FixedWindowRateLimiter(max_attempts=10, window_seconds=15 * 60)

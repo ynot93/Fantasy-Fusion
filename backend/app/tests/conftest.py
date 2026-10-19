@@ -11,10 +11,10 @@ from app.db.database import Base
 from app.api.deps import get_db
 from app.api.deps_fpl import get_fpl_adapter
 from app.services.fpl_adapter import FPLAdapter
-from app.core.rate_limit import fpl_login_rate_limiter
+from app.core.rate_limit import login_rate_limiter, fpl_verify_rate_limiter, password_reset_rate_limiter
 from app.db.payments.service import PaymentsService
 from app.db.payments.providers.fake import FakeProvider
-from app.core.security import create_access_token
+from app.core.security import create_access_token, get_password_hash
 
 import app.db.auth.models as auth_models
 import app.db.payments.models as pay_models
@@ -63,11 +63,14 @@ async def prepare_database():
 
 
 @pytest.fixture(autouse=True)
-def reset_fpl_login_rate_limiter():
-    """The limiter is a module-level singleton; don't let tests bleed into each other."""
-    fpl_login_rate_limiter.reset()
+def reset_rate_limiters():
+    """The limiters are module-level singletons; don't let tests bleed into each other."""
+    limiters = (login_rate_limiter, fpl_verify_rate_limiter, password_reset_rate_limiter)
+    for limiter in limiters:
+        limiter.reset()
     yield
-    fpl_login_rate_limiter.reset()
+    for limiter in limiters:
+        limiter.reset()
 
 
 @pytest_asyncio.fixture
@@ -78,8 +81,8 @@ async def client():
 
 
 # -----------------------------------------------------------------------------
-# Shared FPL adapter mock - every auth flow goes through /auth/fpl-login now,
-# so this is used anywhere a test needs to log a user in (not just test_fpl.py).
+# Shared FPL adapter mock - every FPL call in the app goes through FPLAdapter,
+# so tests control FPL's responses here.
 # -----------------------------------------------------------------------------
 @pytest.fixture
 def mock_fpl_adapter():
@@ -88,8 +91,6 @@ def mock_fpl_adapter():
     mock.bootstrap_static = AsyncMock(return_value={"teams": [{"name": "Arsenal"}]})
     mock.get_entry = AsyncMock(return_value={"entry": {"name": "Public User"}})
     mock.get_entry_picks = AsyncMock(return_value={"picks": [1, 2, 3]})
-    mock.get_my_team = AsyncMock(return_value={"team": "My Squad", "bank": 10.0})
-    mock.login_and_get_details = AsyncMock(return_value={"manager_id": 1, "cookie": "cookie"})
     return mock
 
 
@@ -108,66 +109,47 @@ async def db_session_fixture():
     async with TestingSessionLocal() as session:
         yield session
 
-@pytest_asyncio.fixture
-async def admin_headers(client, db_session, override_get_adapter, mock_fpl_adapter):
-    """
-    Auth is FPL-only now (see /auth/fpl-login), so "logging in" means the
-    mocked FPL adapter reports a successful login for a given manager_id.
-    """
-    mock_fpl_adapter.login_and_get_details.return_value = {
-        "manager_id": 900001,
-        "cookie": "admin-cookie",
-    }
-    # 1) First fpl-login auto-creates the user (role defaults to "user")
-    resp1 = await client.post(
-        "/auth/fpl-login", json={"email": "adminuser@example.com", "password": "irrelevant-mocked"}
-    )
-    assert resp1.status_code == 200, resp1.text
 
-    # 2) Promote the user in DB
+async def _signup_linked_verified(client, db_session, email, manager_id, role=Role.user):
+    """Sign up through the real endpoint, then link + verify an FPL team directly
+    in the DB, so tests outside test_fpl.py start from a fully onboarded user."""
+    resp = await client.post("/auth/signup", json={"email": email, "password": "correct-horse-1"})
+    assert resp.status_code == 201, resp.text
     user = (
-        await db_session.execute(
-            select(auth_models.User).where(auth_models.User.fpl_manager_id == 900001)
-        )
+        await db_session.execute(select(auth_models.User).where(auth_models.User.email == email))
     ).scalars().one()
-    user.role = Role.admin
+    user.fpl_manager_id = manager_id
+    user.fpl_verified = True
+    user.role = role
     await db_session.commit()
-
-    # 3) Log in again so the issued JWT reflects the promoted role
-    resp2 = await client.post(
-        "/auth/fpl-login", json={"email": "adminuser@example.com", "password": "irrelevant-mocked"}
-    )
-    assert resp2.status_code == 200, resp2.text
-    token = resp2.json()["access_token"]
-
+    # Fresh token so the role claim matches
+    token = create_access_token(data={"sub": str(user.id), "role": user.role.value})
     return {"Authorization": f"Bearer {token}"}
+
 
 @pytest_asyncio.fixture
-async def auth_headers(client, override_get_adapter, mock_fpl_adapter):
-    mock_fpl_adapter.login_and_get_details.return_value = {
-        "manager_id": 900002,
-        "cookie": "user-cookie",
-    }
-    resp = await client.post(
-        "/auth/fpl-login", json={"email": "nouser@example.com", "password": "irrelevant-mocked"}
-    )
-    assert resp.status_code == 200, resp.text
-    token = resp.json()["access_token"]
+async def admin_headers(client, db_session, override_get_adapter):
+    return await _signup_linked_verified(client, db_session, "adminuser@example.com", 900001, role=Role.admin)
 
-    return {"Authorization": f"Bearer {token}"}
+@pytest_asyncio.fixture
+async def auth_headers(client, db_session, override_get_adapter):
+    return await _signup_linked_verified(client, db_session, "nouser@example.com", 900002)
 
 @pytest_asyncio.fixture
 async def make_user(db_session):
-    """Factory fixture: await make_user() to create a distinct user + valid auth headers on demand."""
+    """Factory fixture: await make_user() to create a distinct user + valid auth headers on demand.
+    Pass linked/verified=False to get a user at an earlier onboarding stage."""
     created = {"n": 0}
 
-    async def _make_user():
+    async def _make_user(linked: bool = True, verified: bool = True):
         created["n"] += 1
         n = created["n"]
         user = auth_models.User(
             email=f"made-user-{n}@example.com",
             username=f"made_user_{n}",
-            fpl_manager_id=800000 + n,
+            hashed_password=get_password_hash("correct-horse-1"),
+            fpl_manager_id=800000 + n if linked else None,
+            fpl_verified=linked and verified,
             role=Role.user,
             status=auth_models.UserStatus.active,
         )

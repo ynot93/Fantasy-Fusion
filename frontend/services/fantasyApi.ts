@@ -1,12 +1,14 @@
 
-import { League, Member, UserProfile, PlayerStat, Transaction, AdminUser, UserStatus, UserRole, AdminLeague, LeagueStatus, AdminTransaction, FraudAlert, HomepageContent, Announcement, HelpArticle, AnalyticsData, SystemSettingsData, Backup, FplSummary, AuthUser } from '../types';
+import { League, Member, UserProfile, PlayerStat, Transaction, AdminUser, UserStatus, UserRole, AdminLeague, LeagueStatus, AdminTransaction, FraudAlert, HomepageContent, Announcement, HelpArticle, AnalyticsData, SystemSettingsData, Backup, FplSummary, AuthUser, FplTeamPreview, FplVerificationStatus } from '../types';
 import { apiFetch, ApiError } from './http';
 import { centsToKsh, kshToCents } from './money';
 
 interface BackendUserResponse {
   id: number;
   email: string;
-  fpl_manager_id: number;
+  username: string;
+  fpl_manager_id: number | null;
+  fpl_verified: boolean;
   role: string;
 }
 
@@ -20,14 +22,32 @@ interface BackendTokenResponse {
 const toAuthUser = (u: BackendUserResponse): AuthUser => ({
   id: String(u.id),
   email: u.email,
+  username: u.username,
   fplManagerId: u.fpl_manager_id,
+  fplVerified: u.fpl_verified,
   role: u.role as AuthUser['role'],
 });
+
+const toTokens = (res: BackendTokenResponse) => ({
+  accessToken: res.access_token,
+  refreshToken: res.refresh_token,
+  user: toAuthUser(res.user),
+});
+
+interface BackendFplLinkResponse {
+  user: BackendUserResponse;
+  team: {
+    manager_id: number;
+    team_name: string | null;
+    manager_name: string | null;
+    overall_points: number | null;
+  };
+}
 
 interface BackendLeagueMember {
   id: number;
   email: string;
-  fpl_manager_id: number;
+  fpl_manager_id: number | null;
   role: string;
   name?: string | null;
   team_name?: string | null;
@@ -324,16 +344,67 @@ const joinByCode = async (code: string): Promise<{ success: boolean; message: st
 
 export const fantasyApi = {
   login: async (email: string, password: string): Promise<{ accessToken: string; refreshToken: string; user: AuthUser }> => {
-    const res = await apiFetch<BackendTokenResponse>('/auth/fpl-login', {
+    const res = await apiFetch<BackendTokenResponse>('/auth/login', {
       method: 'POST',
       body: { email, password },
       auth: false,
     });
+    return toTokens(res);
+  },
+
+  signup: async (email: string, password: string): Promise<{ accessToken: string; refreshToken: string; user: AuthUser }> => {
+    const res = await apiFetch<BackendTokenResponse>('/auth/signup', {
+      method: 'POST',
+      body: { email, password },
+      auth: false,
+    });
+    return toTokens(res);
+  },
+
+  // Always resolves the same way whether or not the email has an account
+  requestPasswordReset: async (email: string): Promise<string> => {
+    const res = await apiFetch<{ detail: string }>('/auth/password-reset/request', {
+      method: 'POST',
+      body: { email },
+      auth: false,
+    });
+    return res.detail;
+  },
+
+  confirmPasswordReset: async (token: string, password: string): Promise<string> => {
+    const res = await apiFetch<{ detail: string }>('/auth/password-reset/confirm', {
+      method: 'POST',
+      body: { token, password },
+      auth: false,
+    });
+    return res.detail;
+  },
+
+  getMe: async (): Promise<AuthUser> => {
+    return toAuthUser(await apiFetch<BackendUserResponse>('/auth/me'));
+  },
+
+  // `team` is a bare manager ID or a pasted FPL Points-page URL; the backend parses either
+  linkFplTeam: async (team: string): Promise<{ user: AuthUser; team: FplTeamPreview }> => {
+    const res = await apiFetch<BackendFplLinkResponse>('/fpl/link', { method: 'POST', body: { team } });
     return {
-      accessToken: res.access_token,
-      refreshToken: res.refresh_token,
       user: toAuthUser(res.user),
+      team: {
+        managerId: res.team.manager_id,
+        teamName: res.team.team_name,
+        managerName: res.team.manager_name,
+        overallPoints: res.team.overall_points,
+      },
     };
+  },
+
+  getFplVerification: async (): Promise<FplVerificationStatus> => {
+    const res = await apiFetch<{ linked: boolean; verified: boolean; league_code: string | null }>('/fpl/verification');
+    return { linked: res.linked, verified: res.verified, leagueCode: res.league_code };
+  },
+
+  verifyFplTeam: async (): Promise<AuthUser> => {
+    return toAuthUser(await apiFetch<BackendUserResponse>('/fpl/verify', { method: 'POST' }));
   },
 
   getPublicLeagues: async (): Promise<League[]> => {

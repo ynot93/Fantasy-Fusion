@@ -26,7 +26,7 @@ const Login: React.FC = () => {
       }
     } catch (err) {
       if (err instanceof ApiError) {
-        setError(typeof err.detail === 'string' ? err.detail : 'Invalid FPL credentials.');
+        setError(typeof err.detail === 'string' ? err.detail : 'Invalid email or password.');
       } else {
         setError('Something went wrong. Please try again.');
       }
@@ -58,10 +58,13 @@ const Login: React.FC = () => {
           <h1 className="ml-3 text-3xl font-bold text-white">FPL Nexus</h1>
         </NavLink>
         <h2 className="text-2xl font-bold tracking-tight text-white">
-          Log in with your FPL account
+          Log in to your account
         </h2>
         <p className="mt-2 text-sm text-slate-400">
-          We use your official Fantasy Premier League credentials to sign you in. Your password is sent straight to FPL, never stored by us. First time here? Logging in creates your account automatically.
+          New here?{' '}
+          <NavLink to="/signup" className="font-medium text-brand-primary-accent hover:underline">
+            Create an account
+          </NavLink>
         </p>
       </div>
 
@@ -73,7 +76,7 @@ const Login: React.FC = () => {
             </div>
           )}
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-slate-300">FPL Email</label>
+            <label htmlFor="email" className="block text-sm font-medium text-slate-300">Email</label>
             <input
               id="email"
               name="email"
@@ -88,7 +91,10 @@ const Login: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center justify-between">
-                <label htmlFor="password"className="block text-sm font-medium text-slate-300">FPL Password</label>
+                <label htmlFor="password" className="block text-sm font-medium text-slate-300">Password</label>
+                <NavLink to="/forgot-password" className="text-sm text-brand-primary-accent hover:underline">
+                  Forgot password?
+                </NavLink>
             </div>
             <input
               id="password"

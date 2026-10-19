@@ -10,6 +10,18 @@ from app.services.fpl_adapter import FPLAdapter
 router = APIRouter()
 
 
+def _require_fpl_for_league(user, entry_fee_cents: int) -> None:
+    """Every league member needs a linked FPL team (it's what the leaderboard
+    scores); leagues with an entry fee also need that team's ownership verified."""
+    if user.fpl_manager_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Link your FPL team first.")
+    if entry_fee_cents > 0 and not user.fpl_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verify your FPL team before joining a league with an entry fee.",
+        )
+
+
 def _to_response(league, prize_pool_cents: int) -> schemas.LeagueResponse:
     return schemas.LeagueResponse.model_validate(league).model_copy(update={"prize_pool_cents": prize_pool_cents})
 
@@ -22,6 +34,9 @@ async def _enrich_members(adapter: FPLAdapter, members: List[schemas.LeagueMembe
     """
     enriched = []
     for m in members:
+        if m.fpl_manager_id is None:
+            enriched.append(m)
+            continue
         try:
             entry = await adapter.get_entry(m.fpl_manager_id)
             name = f"{entry.get('player_first_name', '')} {entry.get('player_last_name', '')}".strip() or None
@@ -54,6 +69,8 @@ async def create_league(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    # The creator is added as the first member, so the same membership rules apply
+    _require_fpl_for_league(current_user, league_in.entry_fee_cents)
     league = await crud.create_league(db, league_in, creator_id=current_user.id)
     return _to_response(league, 0)
 
@@ -72,6 +89,10 @@ async def join_league(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    existing = await crud.get_league_by_code(db, league_in.code)
+    if not existing:
+        raise HTTPException(status_code=404, detail="League not found")
+    _require_fpl_for_league(current_user, existing.entry_fee_cents)
     league, error = await crud.join_league(db, current_user.id, league_in.code)
     if error == "not_found":
         raise HTTPException(status_code=404, detail="League not found")

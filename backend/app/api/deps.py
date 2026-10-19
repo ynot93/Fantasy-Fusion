@@ -12,7 +12,7 @@ async def get_db():
         yield session
 
 # Dependency to get the current user
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/fpl-login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     try:
@@ -31,12 +31,20 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired or invalid")
 
-async def get_current_active_fpl_user(current_user: models.User = Depends(get_current_user)) -> models.User:
-    """Ensures the user is logged in AND has linked their FPL account."""
-    if not current_user.fpl_session_cookie or not current_user.fpl_manager_id:
-        # 403 Forbidden is often better than 401 Unauthorized here
+async def get_current_linked_fpl_user(current_user: models.User = Depends(get_current_user)) -> models.User:
+    """Ensures the user is logged in AND has linked an FPL team (verified or not)."""
+    if current_user.fpl_manager_id is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, 
-            detail="FPL account not linked. Please log in with FPL credentials."
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Link your FPL team first.",
+        )
+    return current_user
+
+async def get_current_verified_fpl_user(current_user: models.User = Depends(get_current_linked_fpl_user)) -> models.User:
+    """Ensures the linked FPL team's ownership has been verified - required for anything involving money."""
+    if not current_user.fpl_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Verify your FPL team first.",
         )
     return current_user

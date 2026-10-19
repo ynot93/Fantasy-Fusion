@@ -12,7 +12,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     phone_number: Mapped[str | None] = mapped_column(String(12), unique=True, index=True, nullable=True)
-    # hashed_password: Mapped[str] = mapped_column(String(255))
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[Role] = mapped_column(Enum(Role), default=Role.user, nullable=False)
     status: Mapped[UserStatus] = mapped_column(Enum(UserStatus), default=UserStatus.active, nullable=False)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -25,5 +25,8 @@ class User(Base):
     leagues_joined = relationship("League", secondary=league_members, back_populates="members")
     wallet = relationship('Wallet', back_populates="user", uselist=False)
 
-    fpl_manager_id: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, nullable=False)
-    fpl_session_cookie: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Linked FPL team. Null until the user links one; fpl_verified flips once
+    # they've proven ownership by joining the verification league on FPL.
+    fpl_manager_id: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, nullable=True)
+    fpl_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fpl_verified_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)

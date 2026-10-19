@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 
 import Layout from './components/Layout';
@@ -8,6 +8,10 @@ import MyLeagues from './pages/MyLeagues';
 import Profile from './pages/Profile';
 import Wallet from './pages/Wallet';
 import Login from './pages/Login';
+import Signup from './pages/Signup';
+import LinkFpl from './pages/LinkFpl';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import TermsOfService from './pages/TermsOfService';
 import PrivacyPolicy from './pages/PrivacyPolicy';
 import ResponsibleGaming from './pages/ResponsibleGaming';
@@ -57,7 +61,10 @@ function App() {
           <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Navigate to="/login" replace />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/link-fpl" element={<ProtectedRoute><LinkFpl /></ProtectedRoute>} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/responsible-gaming" element={<ResponsibleGaming />} />

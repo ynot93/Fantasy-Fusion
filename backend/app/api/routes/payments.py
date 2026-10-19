@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from app.api.deps import get_db
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_verified_fpl_user
 from app.db.payments.service import PaymentsService
 from app.db.payments import schemas as PaymentSchema
 from app.db.payments.models import Provider
@@ -81,7 +81,7 @@ async def contribute(
     req: PaymentSchema.LeagueContributionRequest,
     db: AsyncSession = Depends(get_db),
     svc: PaymentsService = Depends(get_payments_service),
-    user=Depends(get_current_user)
+    user=Depends(get_current_verified_fpl_user)
 ):
     tx = await svc.contribute_to_league(
         db,

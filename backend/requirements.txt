@@ -22,7 +22,6 @@ ecdsa==0.19.1
 email_validator==2.2.0
 exceptiongroup==1.3.0
 fastapi==0.116.1
-fpl==0.6.35
 frozenlist==1.8.0
 greenlet==3.2.3
 h11==0.16.0

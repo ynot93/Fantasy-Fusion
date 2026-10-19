@@ -4,7 +4,7 @@ from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from app.core.config import settings
-import base64, httpx, stripe
+import base64, hashlib, hmac, httpx, stripe
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -28,6 +28,48 @@ def create_refresh_token(data: dict):
 
 def decode_token(token: str):
     return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+# --- Password reset tokens ---
+# Signed with a separate derived key so a reset token can never be used as a
+# bearer token (decode_token rejects it) and an access token can never reset a
+# password. The token also carries a fingerprint of the current password hash,
+# so it stops working as soon as the password changes - i.e. it is single-use,
+# without needing a tokens table.
+_RESET_PURPOSE = "password_reset"
+
+
+def _reset_signing_key() -> str:
+    return f"{settings.JWT_SECRET_KEY}:{_RESET_PURPOSE}"
+
+
+def _password_fingerprint(hashed_password: str) -> str:
+    return hashlib.sha256(hashed_password.encode()).hexdigest()[:32]
+
+
+def create_password_reset_token(user_id: int, hashed_password: str) -> str:
+    claims = {
+        "sub": str(user_id),
+        "purpose": _RESET_PURPOSE,
+        "pwd": _password_fingerprint(hashed_password),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_EXPIRE_MINUTES),
+    }
+    return jwt.encode(claims, _reset_signing_key(), algorithm=settings.ALGORITHM)
+
+
+def read_password_reset_token(token: str) -> tuple[int, str] | None:
+    """Returns (user_id, password_fingerprint) for a valid, unexpired reset token, else None.
+    The caller must still check the fingerprint against the user's current hash."""
+    try:
+        payload = jwt.decode(token, _reset_signing_key(), algorithms=[settings.ALGORITHM])
+        if payload.get("purpose") != _RESET_PURPOSE:
+            return None
+        return int(payload["sub"]), payload["pwd"]
+    except (JWTError, KeyError, TypeError, ValueError):
+        return None
+
+
+def password_fingerprint_matches(hashed_password: str, fingerprint: str) -> bool:
+    return hmac.compare_digest(_password_fingerprint(hashed_password), fingerprint)
 
 async def get_mpesa_access_token():
     consumer_key = settings.MPESA_CONSUMER_KEY

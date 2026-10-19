@@ -3,8 +3,25 @@
 export interface AuthUser {
   id: string;
   email: string;
-  fplManagerId: number;
+  username: string;
+  // null until the user links an FPL team on /link-fpl
+  fplManagerId: number | null;
+  // true once ownership is proven via the verification league; required for paid leagues
+  fplVerified: boolean;
   role: 'user' | 'admin' | 'super_admin';
+}
+
+export interface FplTeamPreview {
+  managerId: number;
+  teamName: string | null;
+  managerName: string | null;
+  overallPoints: number | null;
+}
+
+export interface FplVerificationStatus {
+  linked: boolean;
+  verified: boolean;
+  leagueCode: string | null;
 }
 
 export interface Member {

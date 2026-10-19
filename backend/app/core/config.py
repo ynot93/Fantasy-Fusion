@@ -34,11 +34,22 @@ class Settings(BaseSettings):
     BACKEND_URL: str
     MPESA_CALLBACK_URL_B2C: str
     MPESA_CALLBACK_URL_STK: str
-    FPL_EMAIL: str
-    FPL_PWD: str
-    FPL_LOGIN_URL: str
-    FPL_TEAM_URL: str
+    # FPL classic league users join to prove they own the team they linked.
+    # Create it from your own FPL account; id is in its standings URL, code is its invite code.
+    FPL_VERIFICATION_LEAGUE_ID: int | None = None
+    FPL_VERIFICATION_LEAGUE_CODE: str | None = None
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # Where the SPA lives - used to build links in emails (e.g. password reset)
+    FRONTEND_URL: str = "http://localhost:3000"
+    PASSWORD_RESET_EXPIRE_MINUTES: int = 30
+    # Outgoing email. If SMTP_HOST is unset, emails are written to the log instead
+    # (dev only - a logged reset link is a usable credential).
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM: str = "Fantasy Fusion <no-reply@localhost>"
+    SMTP_STARTTLS: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

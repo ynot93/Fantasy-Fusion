@@ -56,7 +56,8 @@ const UserDashboardView: React.FC = () => {
             const [leagues, profile, summary, wallet] = await Promise.all([
                 fantasyApi.getMyLeagues(),
                 fantasyApi.getUserProfile(),
-                user ? fantasyApi.getFplSummary(user.fplManagerId) : Promise.resolve(null),
+                // FPL being briefly unreachable shouldn't block the whole dashboard
+                user?.fplManagerId ? fantasyApi.getFplSummary(user.fplManagerId).catch(() => null) : Promise.resolve(null),
                 fantasyApi.getWalletDetails(),
             ]);
 
@@ -87,7 +88,7 @@ const UserDashboardView: React.FC = () => {
         }
     }
 
-    if (isLoading || !userProfile || !fplSummary) {
+    if (isLoading || !userProfile) {
         return <div className="text-center p-10">Loading dashboard...</div>;
     }
 
@@ -127,6 +128,25 @@ const UserDashboardView: React.FC = () => {
 
                 {/* FPL Stats Card */}
                 <motion.div custom={1} initial="hidden" animate="visible" variants={cardVariants} className="bg-brand-secondary/50 rounded-xl p-6 border border-brand-border">
+                    {!user?.fplManagerId ? (
+                    <div className="flex flex-col h-full justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                            <div className="bg-brand-primary-accent/20 text-brand-primary-accent rounded-full w-16 h-16 flex items-center justify-center shrink-0">
+                                <LinkIcon className="w-8 h-8"/>
+                            </div>
+                            <div>
+                                <p className="text-xl font-bold text-white">Link your FPL team</p>
+                                <p className="text-sm text-slate-400 mt-1">Your FPL team's points decide your league standings. Link it to start joining leagues.</p>
+                            </div>
+                        </div>
+                        <NavLink to="/link-fpl" className="text-center bg-gradient-to-r from-brand-primary-accent to-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:opacity-90">
+                            Link team
+                        </NavLink>
+                    </div>
+                    ) : !fplSummary ? (
+                    <p className="text-slate-400">FPL data is unavailable right now. Please check back shortly.</p>
+                    ) : (
+                    <>
                     <div className="flex justify-between items-start mb-4">
                         <div>
                             <p className="text-slate-400 text-sm">Gameweek Points</p>
@@ -151,6 +171,13 @@ const UserDashboardView: React.FC = () => {
                             <span className="font-semibold text-white">{fplSummary.totalPlayers.toLocaleString()}</span>
                         </div>
                     </div>
+                    {!user.fplVerified && (
+                        <NavLink to="/link-fpl" className="mt-4 block text-sm text-brand-primary-accent hover:underline">
+                            Verify your team to join paid leagues →
+                        </NavLink>
+                    )}
+                    </>
+                    )}
                 </motion.div>
                 
                 {/* Leagues Card */}

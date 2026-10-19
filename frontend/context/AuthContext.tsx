@@ -16,6 +16,11 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
+  signup: (email: string, password: string) => Promise<AuthUser>;
+  // Replace the stored user (e.g. with the one returned by link/verify)
+  setUser: (user: AuthUser) => void;
+  // Re-fetch the user from /auth/me
+  refreshUser: () => Promise<AuthUser | null>;
   logout: () => void;
 }
 
@@ -62,19 +67,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [logout]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { accessToken, refreshToken, user } = await fantasyApi.login(email, password);
-    const next: StoredAuth = { accessToken, refreshToken, user };
+  const storeSession = useCallback((next: StoredAuth) => {
     setAuth(next);
     writeStoredAuth(next);
-    return user;
+    return next.user;
   }, []);
+
+  const login = useCallback(async (email: string, password: string) => {
+    return storeSession(await fantasyApi.login(email, password));
+  }, [storeSession]);
+
+  const signup = useCallback(async (email: string, password: string) => {
+    return storeSession(await fantasyApi.signup(email, password));
+  }, [storeSession]);
+
+  const setUser = useCallback((user: AuthUser) => {
+    const current = authRef.current;
+    if (current) {
+      storeSession({ ...current, user });
+    }
+  }, [storeSession]);
+
+  const refreshUser = useCallback(async () => {
+    if (!authRef.current) return null;
+    const user = await fantasyApi.getMe();
+    setUser(user);
+    return user;
+  }, [setUser]);
+
+  // Sessions stored before fplVerified existed lack it; pick up the current user shape once on load
+  useEffect(() => {
+    if (authRef.current && authRef.current.user.fplVerified === undefined) {
+      refreshUser().catch(() => {});
+    }
+  }, [refreshUser]);
 
   const value: AuthContextValue = {
     user: auth?.user ?? null,
     isAuthenticated: !!auth,
     isLoading,
     login,
+    signup,
+    setUser,
+    refreshUser,
     logout,
   };
 
